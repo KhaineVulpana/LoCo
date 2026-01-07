@@ -5,6 +5,9 @@ REM Starts Qdrant and Server together
 echo Starting LoCo Agent...
 echo.
 
+REM Auth toggle (0 = disabled, 1 = enabled)
+set AUTH_ENABLED=0
+
 REM Check if Docker is running
 docker info >nul 2>&1
 if errorlevel 1 (
@@ -34,13 +37,13 @@ echo.
 
 REM Start server
 echo Starting server...
-cd server
+cd backend
 
 REM Find Python executable (skip Windows Store stub)
 set PYTHON_EXE=
 for %%p in (
-    "C:\Users\Kevin\AppData\Local\Programs\Python\Python311\python.exe"
-    "C:\Users\Kevin\AppData\Local\Programs\Python\Python312\python.exe"
+    "%LocalAppData%\Programs\Python\Python311\python.exe"
+    "%LocalAppData%\Programs\Python\Python312\python.exe"
     "C:\Python311\python.exe"
     "C:\Python312\python.exe"
 ) do (

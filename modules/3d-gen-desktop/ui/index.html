@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LoCo 3D-Gen</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Source+Code+Pro:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="chat-panel">
+        <header class="panel-header">
+          <div>
+            <p class="eyebrow">LoCo</p>
+            <h1>3D-Gen Studio</h1>
+          </div>
+          <span class="frontend-pill">frontend: 3d-gen</span>
+        </header>
+
+        <section class="connection-card">
+          <div class="connection-header">
+            <h2>Connection</h2>
+            <span id="status-pill" class="status-pill offline">offline</span>
+          </div>
+          <div class="connection-grid">
+            <label>
+              Server URL
+              <input id="server-url" type="text" placeholder="http://localhost:3199" />
+            </label>
+            <label>
+              Workspace Path
+              <input id="workspace-path" type="text" placeholder="C:\Projects\3d-gen" />
+            </label>
+            <label>
+              Token (optional)
+              <input id="auth-token" type="password" placeholder="paste token if enabled" />
+            </label>
+            <button id="connect-btn" class="primary-btn">Connect</button>
+          </div>
+        </section>
+
+        <section class="messages" id="messages"></section>
+
+        <form id="composer" class="composer">
+          <textarea
+            id="message-input"
+            rows="3"
+            placeholder="Describe a 3D asset..."
+          ></textarea>
+          <button type="submit" class="primary-btn">Send</button>
+        </form>
+      </aside>
+
+      <section class="viewer-panel">
+        <header class="viewer-header">
+          <div>
+            <h2>Mesh Preview</h2>
+            <p id="viewer-status">Waiting for mesh JSON…</p>
+          </div>
+          <div class="viewer-actions">
+            <button id="reset-view" class="ghost-btn">Reset view</button>
+            <button id="toggle-wireframe" class="ghost-btn">Wireframe</button>
+          </div>
+        </header>
+        <div class="viewer-surface">
+          <canvas id="viewer"></canvas>
+          <div class="viewer-overlay" id="viewer-overlay">
+            <p>Send a prompt to generate a mesh.</p>
+          </div>
+        </div>
+        <div class="viewer-meta" id="viewer-meta">
+          <div>
+            <span class="meta-label">Vertices</span>
+            <span id="vertex-count">0</span>
+          </div>
+          <div>
+            <span class="meta-label">Triangles</span>
+            <span id="triangle-count">0</span>
+          </div>
+          <div>
+            <span class="meta-label">Status</span>
+            <span id="mesh-status">idle</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

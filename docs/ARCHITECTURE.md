@@ -49,7 +49,7 @@ Responsibilities:
 
 #### Extension Architecture:
 ```
-extension/
+modules/vscode-extension/
 ├── src/
 │   ├── extension.ts          # Entry point, activation
 │   ├── sidebar/

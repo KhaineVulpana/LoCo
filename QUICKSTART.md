@@ -28,7 +28,7 @@ curl http://localhost:6333/health
 ## Step 3: Set Up Server
 
 ```bash
-cd server
+cd backend
 
 # Create virtual environment
 python3 -m venv venv
@@ -64,7 +64,7 @@ INFO:     Application startup complete.
 Open a **new terminal**:
 
 ```bash
-cd extension
+cd modules/vscode-extension
 
 # Install dependencies
 npm install
@@ -75,7 +75,7 @@ npm run compile
 
 ## Step 5: Launch Extension
 
-1. Open the `extension/` folder in VS Code:
+1. Open the `modules/vscode-extension/` folder in VS Code:
    ```bash
    code .
    ```
@@ -240,7 +240,7 @@ DEBUG=false
 
 - **Logs**: Check server terminal for errors
 - **Extension Logs**: Help → Toggle Developer Tools → Console
-- **Database**: SQLite file at `server/loco_agent.db`
+- **Database**: SQLite file at `backend/loco_agent.db`
 - **Documentation**: See `docs/` folder
 
 ## Development Mode

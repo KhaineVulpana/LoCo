@@ -13,13 +13,13 @@ A **local-first, LAN-served coding agent** with a **feature-rich VS Code extensi
 - **Metadata persistence** via SQLite (sessions, policies, audit logs, ACE artifacts) with schema migrations.
 
 ## Project layout
-- `extension/` — VS Code extension (rich client with deep IDE integration)
+- `modules/vscode-extension/` — VS Code extension (rich client with deep IDE integration)
   - `src/sidebar/` — Custom sidebar panel (chat UI, file changes tree)
   - `src/diff/` — Inline diff handling and native diff viewer integration
   - `src/context/` — Automatic context gathering (selection, diagnostics, git, terminal)
   - `src/commands/` — Slash commands and @ mention handlers
   - `src/decorations/` — File decorations for AI-modified files
-- `server/` — Agent Server (authoritative brain)
+- `backend/` — Agent Server (authoritative brain)
 - `schemas/` — JSON Schemas for API + WS events
 - `docs/` — detailed specs: security, data model, indexing, RAG, ACE, tools, UI/UX
 - `scripts/` — dev scripts & codegen placeholders
@@ -28,9 +28,9 @@ A **local-first, LAN-served coding agent** with a **feature-rich VS Code extensi
 1. Run Qdrant (recommended):
    - `docker compose up -d qdrant`
 2. Start server:
-   - `cd server && uvicorn app.main:app --reload --port 3199`
+   - `cd backend && uvicorn app.main:app --reload --port 3199`
 3. Run extension:
-   - Open `extension/` in VS Code → `F5` (Extension Development Host)
+   - Open `modules/vscode-extension/` in VS Code → `F5` (Extension Development Host)
 4. Configure in extension settings:
    - `locoAgent.serverUrl = "https://<desktop-ip>:3199"` (or http for dev)
    - `locoAgent.modelProvider = "ollama"` (or vllm, llama.cpp)

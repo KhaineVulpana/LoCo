@@ -1,0 +1,29 @@
+{
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "devPath": "../ui/index.html",
+    "distDir": "../ui"
+  },
+  "package": {
+    "productName": "LoCo 3D-Gen",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "windows": [
+      {
+        "title": "LoCo 3D-Gen",
+        "width": 1280,
+        "height": 800,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "bundle": {
+      "active": true,
+      "targets": ["msi", "nsis"]
+    }
+  }
+}

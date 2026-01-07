@@ -121,18 +121,18 @@ if [ "$BUILD_ANDROID" = true ]; then
     echo "========================================"
     echo
     
-    if [ -d "../LoCoAndroid" ]; then
-        cd ../LoCoAndroid
+    if [ -d "../modules/android-app" ]; then
+        cd ../modules/android-app
         if [ -f "build-android-apk.sh" ]; then
             ./build-android-apk.sh
         else
-            echo "ERROR: build-android-apk.sh not found in LoCoAndroid/"
-            cd ..
+            echo "ERROR: build-android-apk.sh not found in modules/android-app/"
+            cd ../..
             exit 1
         fi
-        cd ..
+        cd ../..
     else
-        echo "WARNING: LoCoAndroid directory not found. Skipping Android build."
+        echo "WARNING: modules/android-app directory not found. Skipping Android build."
     fi
 fi
 

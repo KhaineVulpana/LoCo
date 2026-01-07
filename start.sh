@@ -36,7 +36,7 @@ fi
 
 # Start server
 echo "🖥️  Starting server..."
-cd server
+cd backend
 
 # Check if venv exists
 if [ ! -d "venv" ]; then

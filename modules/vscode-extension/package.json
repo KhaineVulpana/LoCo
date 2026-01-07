@@ -1,0 +1,156 @@
+{
+  "name": "loco-agent",
+  "displayName": "LoCo Agent",
+  "description": "Local-first coding agent with agentic RAG and ACE",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Machine Learning",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "loco-agent",
+          "title": "LoCo Agent",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "loco-agent": [
+        {
+          "type": "webview",
+          "id": "locoAgent.chatView",
+          "name": "Chat"
+        },
+        {
+          "id": "locoAgent.fileChangesView",
+          "name": "Changed Files"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "locoAgent.openChat",
+        "title": "Open Chat",
+        "category": "LoCo Agent"
+      },
+      {
+        "command": "locoAgent.sendMessage",
+        "title": "Send Message",
+        "category": "LoCo Agent"
+      },
+      {
+        "command": "locoAgent.acceptPatch",
+        "title": "Accept Patch",
+        "category": "LoCo Agent"
+      },
+      {
+        "command": "locoAgent.rejectPatch",
+        "title": "Reject Patch",
+        "category": "LoCo Agent"
+      },
+      {
+        "command": "locoAgent.viewDiff",
+        "title": "View Diff",
+        "category": "LoCo Agent"
+      }
+    ],
+    "configuration": {
+      "title": "LoCo Agent",
+      "properties": {
+        "locoAgent.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:3199",
+          "description": "URL of the LoCo Agent server"
+        },
+        "locoAgent.autoContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically gather context (diagnostics, terminal output, git status)"
+        },
+        "locoAgent.authEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable bearer token authentication when connecting to the server"
+        },
+        "locoAgent.modelProvider": {
+          "type": "string",
+          "default": "ollama",
+          "enum": [
+            "ollama",
+            "vllm",
+            "llamacpp"
+          ],
+          "description": "Model provider"
+        },
+        "locoAgent.modelName": {
+          "type": "string",
+          "default": "qwen3-coder:30b-a3b-q4_K_M",
+          "description": "Model name"
+        },
+        "locoAgent.autoApproveSimple": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve simple changes (< 10 lines)"
+        },
+        "locoAgent.showInlineDiffs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline diff previews in editor"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "locoAgent.openChat",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
+      },
+      {
+        "command": "locoAgent.sendMessage",
+        "key": "ctrl+shift+enter",
+        "mac": "cmd+shift+enter",
+        "when": "locoAgentChatFocused"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "locoAgent.sendMessage",
+          "group": "locoAgent",
+          "when": "editorHasSelection"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "node --test tests/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "marked": "^11.0.0",
+    "ws": "^8.16.0"
+  }
+}

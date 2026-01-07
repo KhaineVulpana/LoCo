@@ -66,7 +66,7 @@ build-server-windows.bat
 **Installation locations**:
 - Program: `C:\Program Files\LoCo Agent Server\`
 - Data: `C:\ProgramData\LoCoAgent\`
-- Config: `C:\Users\<user>\AppData\Roaming\LoCoAgent\.env`
+- Config: `%APPDATA%\LoCoAgent\.env`
 
 #### Linux/macOS Installer
 
@@ -135,7 +135,7 @@ code --install-extension releases/loco-agent-<version>.vsix
 
 **Publishing to Marketplace**:
 ```bash
-cd extension
+cd modules/vscode-extension
 vsce publish
 # Requires publisher account: https://marketplace.visualstudio.com/
 ```
@@ -145,14 +145,15 @@ vsce publish
 #### All Platforms
 
 ```bash
-# From Android project root (LoCoAndroid/)
+# From repo root:
+cd modules/android-app
 
 # Linux/macOS:
-chmod +x build-android-apk.sh
-./build-android-apk.sh
+chmod +x ../../packaging/build-android-apk.sh
+../../packaging/build-android-apk.sh
 
 # Windows:
-build-android-apk.bat
+..\..\packaging\build-android-apk.bat
 ```
 
 **Build Options**:
@@ -203,7 +204,7 @@ LoCo/
 │   ├── LoCoAgent-<version>-debug.apk       # Android debug
 │   └── LoCoAgent-<version>-release.apk     # Android release
 ├── installer_build/                         # Temp files (server)
-├── server/dist/                            # PyInstaller output
+├── backend/dist/                            # PyInstaller output
 └── keystore/                               # Android signing keys
     └── loco-release.keystore               # KEEP SECURE!
 ```
@@ -225,9 +226,9 @@ echo "Building all LoCo Agent distributions..."
 ./build-extension.sh
 
 # Android
-cd LoCoAndroid
-./build-android-apk.sh
-cd ..
+cd modules/android-app
+../../packaging/build-android-apk.sh
+cd ../..
 
 echo "All builds complete! Check releases/ directory"
 ```
@@ -235,9 +236,9 @@ echo "All builds complete! Check releases/ directory"
 ## Version Management
 
 Update versions in:
-- Server: `server/app/core/config.py` → `VERSION`
-- Extension: `extension/package.json` → `version`
-- Android: `LoCoAndroid/app/build.gradle.kts` → `versionName` and `versionCode`
+- Server: `backend/app/core/config.py` → `VERSION`
+- Extension: `modules/vscode-extension/package.json` → `version`
+- Android: `modules/android-app/app/build.gradle.kts` → `versionName` and `versionCode`
 
 ## Distribution Checklist
 
@@ -331,7 +332,7 @@ These scripts can be integrated into CI/CD pipelines:
   run: ./build-extension.sh
 
 - name: Build Android APK
-  run: cd LoCoAndroid && ./build-android-apk.sh
+  run: cd modules/android-app && ../../packaging/build-android-apk.sh
 ```
 
 ## Support

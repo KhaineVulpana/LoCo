@@ -21,14 +21,14 @@ services:
 
   server:
     build:
-      context: ./server
+      context: ./backend
       dockerfile: Dockerfile
     container_name: loco-agent-server
     ports:
       - "3199:3199"
     volumes:
-      - ./server:/app
-      - ./server/loco_agent.db:/app/loco_agent.db
+      - ./backend:/app
+      - ./backend/loco_agent.db:/app/loco_agent.db
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333

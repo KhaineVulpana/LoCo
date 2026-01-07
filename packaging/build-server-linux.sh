@@ -25,9 +25,9 @@ echo "Building for: $OS"
 echo
 
 # Check if we're in the right directory
-if [ ! -f "server/app/main.py" ]; then
+if [ ! -f "backend/app/main.py" ]; then
     echo "ERROR: Please run this script from the LoCo project root directory"
-    echo "Expected structure: server/app/main.py"
+    echo "Expected structure: backend/app/main.py"
     exit 1
 fi
 
@@ -42,7 +42,7 @@ echo "[1/6] Installing PyInstaller..."
 pip3 install pyinstaller --quiet
 
 echo "[2/6] Installing server dependencies..."
-cd server
+cd backend
 pip3 install -r requirements.txt --quiet
 
 echo "[3/6] Creating PyInstaller spec file..."
@@ -77,7 +77,7 @@ echo "[5/6] Preparing installer files..."
 mkdir -p installer_build/{bin,config,scripts,systemd}
 
 # Copy executable
-cp server/dist/loco-agent installer_build/bin/
+cp backend/dist/loco-agent installer_build/bin/
 chmod +x installer_build/bin/loco-agent
 
 # Create default config

@@ -5,12 +5,11 @@ REM Creates .vsix file for distribution
 echo ================================
 echo LoCo VS Code Extension - Build
 echo ================================
-echo.
 
 REM Check if we're in the right directory
-if not exist "extension\package.json" (
+if not exist "modules\vscode-extension\package.json" (
     echo ERROR: Please run this script from the LoCo project root directory
-    echo Expected structure: extension\package.json
+    echo Expected structure: modules\vscode-extension\package.json
     pause
     exit /b 1
 )
@@ -33,7 +32,7 @@ if errorlevel 1 (
 )
 
 echo [1/5] Installing dependencies...
-cd extension
+cd modules/vscode-extension
 call npm install
 
 echo [2/5] Installing vsce (VS Code Extension Manager)...
@@ -47,7 +46,7 @@ call npm run compile
 
 if not exist "out\" (
     echo ERROR: Build failed! 'out' directory not created.
-    cd ..
+    cd ..\..
     pause
     exit /b 1
 )
@@ -55,19 +54,19 @@ if not exist "out\" (
 echo [5/5] Packaging extension...
 
 REM Create releases directory
-cd ..
+cd ..\..
 if not exist "releases" mkdir releases
 
 REM Get version from package.json
-cd extension
+cd modules/vscode-extension
 for /f "tokens=2 delims=:, " %%i in ('findstr /r "\"version\"" package.json') do set VERSION=%%i
 set VERSION=%VERSION:"=%
 echo Extension version: %VERSION%
 
 REM Package the extension
-call vsce package --out ..\releases\
+call vsce package --out ..\..\releases\
 
-cd ..
+cd ..\..
 
 set VSIX_FILE=releases\loco-agent-%VERSION%.vsix
 

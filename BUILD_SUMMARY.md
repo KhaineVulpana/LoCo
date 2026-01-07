@@ -20,7 +20,7 @@ project/
 │   ├── ROADMAP.md            # 8-phase implementation plan
 │   └── ...
 │
-├── server/                    # Python/FastAPI backend
+├── backend/                    # Python/FastAPI backend
 │   ├── app/
 │   │   ├── main.py           # FastAPI server with WebSocket
 │   │   ├── core/             # Config, database, auth
@@ -38,7 +38,7 @@ project/
 │   ├── requirements.txt      # Python dependencies
 │   └── .env.example          # Configuration template
 │
-├── extension/                 # VS Code extension (TypeScript)
+├── modules/vscode-extension/                 # VS Code extension (TypeScript)
 │   ├── src/
 │   │   ├── extension.ts      # Entry point
 │   │   ├── sidebar/
@@ -217,21 +217,21 @@ User: Sees response in sidebar
 
 These components have the structure in place but need implementation:
 
-### 1. Indexing Pipeline (`server/app/indexing/`)
+### 1. Indexing Pipeline (`backend/app/indexing/`)
 - File discovery (with .gitignore support)
 - Language detection (tree-sitter)
 - AST-based chunking
 - Symbol extraction
 - Incremental indexing
 
-### 2. Retrieval System (`server/app/retrieval/`)
+### 2. Retrieval System (`backend/app/retrieval/`)
 - Symbol search (SQLite FTS)
 - Text search (ripgrep)
 - Vector search (Qdrant)
 - Hybrid retrieval
 - Reranking
 
-### 3. Tool Execution (`server/app/tools/`)
+### 3. Tool Execution (`backend/app/tools/`)
 - read_file
 - search_symbols
 - search_text
@@ -239,17 +239,17 @@ These components have the structure in place but need implementation:
 - propose_diff
 - execute_command
 
-### 4. Model Adapters (`server/app/models/`)
+### 4. Model Adapters (`backend/app/models/`)
 - Ollama client
 - vLLM client
 - llama.cpp client
 
-### 5. Slash Commands (`extension/src/commands/`)
+### 5. Slash Commands (`modules/vscode-extension/src/commands/`)
 - /fix, /explain, /test, /optimize, /refactor, etc.
 - Command handlers
 - Context-specific gathering
 
-### 6. @ Mentions (`extension/src/commands/`)
+### 6. @ Mentions (`modules/vscode-extension/src/commands/`)
 - File picker
 - Symbol picker
 - Diagnostics picker
@@ -271,14 +271,14 @@ See [QUICKSTART.md](./QUICKSTART.md) for detailed setup instructions.
 docker compose up -d qdrant
 
 # 2. Start server
-cd server
+cd backend
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 3199
 
 # 3. Build extension
-cd extension
+cd modules/vscode-extension
 npm install
 npm run compile
 

@@ -8,9 +8,9 @@ echo ================================
 echo.
 
 REM Check if we're in the right directory
-if not exist "server\app\main.py" (
+if not exist "backend\app\main.py" (
     echo ERROR: Please run this script from the LoCo project root directory
-    echo Expected structure: server\app\main.py
+    echo Expected structure: backend\app\main.py
     pause
     exit /b 1
 )
@@ -37,7 +37,7 @@ echo [1/6] Installing PyInstaller...
 pip install pyinstaller --quiet
 
 echo [2/6] Installing server dependencies...
-cd server
+cd backend
 pip install -r requirements.txt --quiet
 
 echo [3/6] Creating PyInstaller spec file...
@@ -77,7 +77,7 @@ if not exist "installer_build\config" mkdir installer_build\config
 if not exist "installer_build\scripts" mkdir installer_build\scripts
 
 REM Copy executable
-copy server\dist\LoCoAgent.exe installer_build\bin\LoCoAgent.exe
+copy backend\dist\LoCoAgent.exe installer_build\bin\LoCoAgent.exe
 
 REM Create default config
 (

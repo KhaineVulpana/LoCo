@@ -6,21 +6,24 @@ A **local-first, LAN-served coding agent** with VS Code extension, Android app, 
 
 ```
 LoCoProject/
-├── server/              # FastAPI backend server
-├── extension/           # VS Code extension
-├── android/             # Android mobile app
-├── packaging/           # Build scripts for distribution
-├── docs/                # Documentation
-├── schemas/             # API schemas
-└── README.md           # This file
+- backend/             # FastAPI backend server
+- modules/             # Frontend modules
+  - vscode-extension/  # VS Code extension
+  - android-app/       # Android mobile app
+  - 3d-gen-desktop/    # Tauri desktop app
+- packaging/           # Build scripts for distribution
+- docs/                # Documentation
+- schemas/             # API schemas
+- README.md            # This file
 ```
+
 
 ## 🚀 Quick Start
 
 ### 1. Server Setup
 
 ```bash
-cd server
+cd backend
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
@@ -32,7 +35,7 @@ Server: `http://localhost:3199`
 ### 2. VS Code Extension
 
 ```bash
-cd extension
+cd modules/vscode-extension
 npm install
 npm run compile
 # Press F5 in VS Code to launch
@@ -41,7 +44,7 @@ npm run compile
 ### 3. Android App
 
 ```bash
-cd android
+cd modules/android-app
 # Open in Android Studio or:
 ./gradlew assembleDebug
 ```
@@ -91,8 +94,9 @@ build-server-windows.bat     # Windows
 ## 📚 Documentation
 
 - Server API: `http://localhost:3199/docs`
-- Extension: `extension/README.md`
-- Android: `android/README.md`
+- Extension: `modules/vscode-extension/README.md`
+- Android: `modules/android-app/README.md`
+- 3D-Gen Desktop: `modules/3d-gen-desktop/README.md`
 - Packaging: `packaging/README.md`
 
 ## 🔧 Prerequisites

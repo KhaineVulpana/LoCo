@@ -119,7 +119,7 @@ This product is **contract-first**: clients and server communicate via strict JS
         {
           "sha": "abc123",
           "message": "Add password validation",
-          "author": "Kevin",
+          "author": "Developer",
           "timestamp": "2025-12-30T09:15:00Z"
         }
       ]

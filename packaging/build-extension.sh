@@ -10,9 +10,9 @@ echo "================================"
 echo
 
 # Check if we're in the right directory
-if [ ! -f "extension/package.json" ]; then
+if [ ! -f "modules/vscode-extension/package.json" ]; then
     echo "ERROR: Please run this script from the LoCo project root directory"
-    echo "Expected structure: extension/package.json"
+    echo "Expected structure: modules/vscode-extension/package.json"
     exit 1
 fi
 
@@ -30,7 +30,7 @@ if ! command -v npm &> /dev/null; then
 fi
 
 echo "[1/5] Installing dependencies..."
-cd extension
+cd modules/vscode-extension
 npm install
 
 echo "[2/5] Installing vsce (VS Code Extension Manager)..."
@@ -44,7 +44,7 @@ npm run compile
 
 if [ ! -d "out" ]; then
     echo "ERROR: Build failed! 'out' directory not created."
-    cd ..
+    cd ../..
     exit 1
 fi
 
@@ -55,9 +55,10 @@ VERSION=$(node -p "require('./package.json').version")
 echo "Extension version: $VERSION"
 
 # Package the extension
-vsce package --out ../releases/
+mkdir -p ../../releases
+vsce package --out ../../releases/
 
-cd ..
+cd ../..
 
 VSIX_FILE="releases/loco-agent-${VERSION}.vsix"
 
