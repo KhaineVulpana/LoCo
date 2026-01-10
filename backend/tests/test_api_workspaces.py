@@ -4,7 +4,7 @@ from httpx import AsyncClient, ASGITransport
 
 from app.api import workspaces
 from app.core.database import get_db
-from app.main import get_embedding_manager, get_vector_store
+from app.core.runtime import get_embedding_manager, get_vector_store
 
 
 async def create_app(async_session_maker, fake_embedding_manager=None, fake_vector_store=None):

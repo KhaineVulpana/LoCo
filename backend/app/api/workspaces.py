@@ -20,7 +20,7 @@ from app.core.embedding_manager import EmbeddingManager
 from app.core.vector_store import VectorStore
 from app.indexing.indexer import FileIndexer
 from app.indexing.file_watcher import WorkspaceFileWatcher, is_watchdog_available
-from app.main import get_embedding_manager, get_vector_store
+from app.core.runtime import get_embedding_manager, get_vector_store
 import structlog
 
 logger = structlog.get_logger()

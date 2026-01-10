@@ -2,7 +2,7 @@
 LoCo Agent Local - Main Server Entry Point
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Header
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import structlog
@@ -10,8 +10,9 @@ from typing import Optional
 import secrets
 import json
 
-from app.core.database import init_db, get_db, async_session_maker
+from app.core.database import init_db, async_session_maker
 from app.core.config import settings
+from app.core import runtime
 from app.core.qdrant_manager import QdrantManager
 from app.core.embedding_manager import EmbeddingManager
 from app.core.vector_store import VectorStore
@@ -28,13 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = structlog.get_logger()
 
-# Global RAG components
-embedding_manager: Optional[EmbeddingManager] = None
-vector_store: Optional[VectorStore] = None
-
-# Global model manager
-model_manager: Optional[ModelManager] = None
-
 # Store active agents per session
 active_agents = {}
 
@@ -42,7 +36,6 @@ active_agents = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
-    global embedding_manager, vector_store, model_manager
 
     logger.info("server_starting", version=settings.VERSION)
 
@@ -69,30 +62,30 @@ async def lifespan(app: FastAPI):
     if qdrant_available:
         try:
             logger.info("loading_embedding_model", model=settings.EMBEDDING_MODEL)
-            embedding_manager = EmbeddingManager(
+            runtime.embedding_manager = EmbeddingManager(
                 model_name=settings.EMBEDDING_MODEL
             )
 
             logger.info("connecting_to_vector_store",
                        host=settings.QDRANT_HOST,
                        port=settings.QDRANT_PORT)
-            vector_store = VectorStore(
+            runtime.vector_store = VectorStore(
                 host=settings.QDRANT_HOST,
                 port=settings.QDRANT_PORT
             )
 
             logger.info("rag_components_ready",
-                       embedding_model=embedding_manager.get_model_name(),
-                       embedding_dimensions=embedding_manager.get_dimensions())
+                       embedding_model=runtime.embedding_manager.get_model_name(),
+                       embedding_dimensions=runtime.embedding_manager.get_dimensions())
 
             ace_frontends = ["vscode", "android", "3d-gen"]
             logger.info("initializing_ace_collections", frontends=ace_frontends)
             for frontend_id in ace_frontends:
                 collection_name = f"loco_ace_{frontend_id}"
                 try:
-                    vector_store.create_collection(
+                    runtime.vector_store.create_collection(
                         collection_name=collection_name,
-                        vector_size=embedding_manager.get_dimensions()
+                        vector_size=runtime.embedding_manager.get_dimensions()
                     )
                 except Exception as e:
                     logger.error("ace_collection_init_failed",
@@ -101,8 +94,8 @@ async def lifespan(app: FastAPI):
 
             try:
                 training_status = await ensure_3d_gen_training_data(
-                    embedding_manager=embedding_manager,
-                    vector_store=vector_store
+                    embedding_manager=runtime.embedding_manager,
+                    vector_store=runtime.vector_store
                 )
                 logger.info("training_data_loader_complete", status=training_status)
             except Exception as e:
@@ -110,8 +103,8 @@ async def lifespan(app: FastAPI):
 
             try:
                 vscode_docs_status = await ensure_vscode_docs(
-                    embedding_manager=embedding_manager,
-                    vector_store=vector_store
+                    embedding_manager=runtime.embedding_manager,
+                    vector_store=runtime.vector_store
                 )
                 logger.info("vscode_docs_loader_complete", status=vscode_docs_status)
             except Exception as e:
@@ -125,8 +118,8 @@ async def lifespan(app: FastAPI):
                     logger.info("remote_docs_loader_complete", status=remote_docs_status)
 
                 shared_knowledge_status = await ensure_shared_knowledge(
-                    embedding_manager=embedding_manager,
-                    vector_store=vector_store
+                    embedding_manager=runtime.embedding_manager,
+                    vector_store=runtime.vector_store
                 )
                 logger.info("shared_knowledge_loader_complete", status=shared_knowledge_status)
             except Exception as e:
@@ -135,25 +128,25 @@ async def lifespan(app: FastAPI):
             logger.error("rag_initialization_failed",
                         error=str(e),
                         message="Vector search will be disabled")
-            embedding_manager = None
-            vector_store = None
+            runtime.embedding_manager = None
+            runtime.vector_store = None
     else:
         logger.info("rag_disabled", reason="Qdrant not available")
 
     # Initialize model manager
     logger.info("initializing_model_manager")
-    model_manager = ModelManager()
+    runtime.model_manager = ModelManager()
 
     logger.info("server_ready",
-               embedding_model=embedding_manager.get_model_name() if embedding_manager else None,
+               embedding_model=runtime.embedding_manager.get_model_name() if runtime.embedding_manager else None,
                model_manager="initialized")
     yield
 
     logger.info("server_shutting_down")
 
     # Shutdown model manager
-    if model_manager:
-        await model_manager.shutdown()
+    if runtime.model_manager:
+        await runtime.model_manager.shutdown()
 
     # Cleanup resources
 
@@ -178,22 +171,12 @@ app.add_middleware(
 # Dependency injection helpers for RAG components
 def get_embedding_manager() -> EmbeddingManager:
     """Get the global embedding manager instance"""
-    if embedding_manager is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Embedding manager not initialized. Qdrant may not be available."
-        )
-    return embedding_manager
+    return runtime.get_embedding_manager()
 
 
 def get_vector_store() -> VectorStore:
     """Get the global vector store instance"""
-    if vector_store is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Vector store not initialized. Qdrant may not be available."
-        )
-    return vector_store
+    return runtime.get_vector_store()
 
 
 # Health check
@@ -328,9 +311,9 @@ async def websocket_endpoint(
                         frontend_id=frontend_id,
                         workspace_id=workspace_id,
                         db_session_maker=async_session_maker,
-                        model_manager=model_manager,
-                        embedding_manager=embedding_manager,
-                        vector_store=vector_store
+                        model_manager=runtime.model_manager,
+                        embedding_manager=runtime.embedding_manager,
+                        vector_store=runtime.vector_store
                     )
                     active_agents[session_id] = agent
                     logger.info("agent_created",

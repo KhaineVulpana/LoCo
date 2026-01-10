@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api import knowledge
-from app.main import get_embedding_manager, get_vector_store
+from app.core.runtime import get_embedding_manager, get_vector_store
 
 
 def create_app(fake_embedding_manager, fake_vector_store) -> FastAPI:

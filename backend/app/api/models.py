@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import structlog
 
+from app.core.runtime import get_model_manager
+
 logger = structlog.get_logger()
 
 router = APIRouter()
@@ -44,15 +46,6 @@ class ModelStatusResponse(BaseModel):
     """Model manager status"""
     is_loaded: bool
     current_model: Optional[CurrentModelResponse]
-
-
-# Dependency to get model manager
-def get_model_manager():
-    """Get model manager from app state"""
-    from app.main import model_manager
-    if model_manager is None:
-        raise HTTPException(status_code=500, detail="Model manager not initialized")
-    return model_manager
 
 
 @router.get("/status", response_model=ModelStatusResponse)

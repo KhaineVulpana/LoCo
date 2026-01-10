@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from app.ace.playbook import Playbook
 from app.core.embedding_manager import EmbeddingManager
 from app.core.vector_store import VectorStore
-from app.main import get_embedding_manager, get_vector_store
+from app.core.runtime import get_embedding_manager, get_vector_store
 
 logger = structlog.get_logger()
 

@@ -11,7 +11,7 @@ from app.core.embedding_manager import EmbeddingManager
 from app.core.vector_store import VectorStore
 from app.indexing.domain_indexer import KnowledgeIndexer
 from app.retrieval.retriever import Retriever
-from app.main import get_embedding_manager, get_vector_store
+from app.core.runtime import get_embedding_manager, get_vector_store
 
 logger = structlog.get_logger()
 
