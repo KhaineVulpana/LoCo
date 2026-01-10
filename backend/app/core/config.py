@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     ACE_CONTEXT_TOKENS: int = 800
     TEST_LOOP_MAX_ATTEMPTS: int = 3
 
+    # Remote docs ingestion
+    REMOTE_DOCS_ENABLED: bool = True
+    REMOTE_DOCS_REFRESH_HOURS: int = 24
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True

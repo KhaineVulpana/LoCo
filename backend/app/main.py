@@ -15,7 +15,10 @@ from app.core.config import settings
 from app.core.qdrant_manager import QdrantManager
 from app.core.embedding_manager import EmbeddingManager
 from app.core.vector_store import VectorStore
+from app.indexing.auto_knowledge_loader import ensure_shared_knowledge
+from app.indexing.remote_docs_loader import ensure_remote_docs
 from app.indexing.training_data_loader import ensure_3d_gen_training_data
+from app.indexing.vscode_docs_loader import ensure_vscode_docs
 from app.core.model_manager import ModelManager
 from app.api import workspaces, sessions, models as models_api, knowledge, ace
 from app.core.auth import verify_token
@@ -104,6 +107,30 @@ async def lifespan(app: FastAPI):
                 logger.info("training_data_loader_complete", status=training_status)
             except Exception as e:
                 logger.error("training_data_loader_failed", error=str(e))
+
+            try:
+                vscode_docs_status = await ensure_vscode_docs(
+                    embedding_manager=embedding_manager,
+                    vector_store=vector_store
+                )
+                logger.info("vscode_docs_loader_complete", status=vscode_docs_status)
+            except Exception as e:
+                logger.error("vscode_docs_loader_failed", error=str(e))
+
+            try:
+                if settings.REMOTE_DOCS_ENABLED:
+                    remote_docs_status = await ensure_remote_docs(
+                        refresh_hours=settings.REMOTE_DOCS_REFRESH_HOURS
+                    )
+                    logger.info("remote_docs_loader_complete", status=remote_docs_status)
+
+                shared_knowledge_status = await ensure_shared_knowledge(
+                    embedding_manager=embedding_manager,
+                    vector_store=vector_store
+                )
+                logger.info("shared_knowledge_loader_complete", status=shared_knowledge_status)
+            except Exception as e:
+                logger.error("shared_knowledge_loader_failed", error=str(e))
         except Exception as e:
             logger.error("rag_initialization_failed",
                         error=str(e),

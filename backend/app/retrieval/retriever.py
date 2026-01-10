@@ -47,7 +47,8 @@ class Retriever:
         embedding_manager: EmbeddingManager,
         vector_store: VectorStore,
         db_session_maker: Optional[async_sessionmaker] = None,
-        workspace_path: Optional[str] = None
+        workspace_path: Optional[str] = None,
+        shared_collection: Optional[str] = "loco_rag_shared"
     ):
         """
         Initialize retriever
@@ -63,6 +64,9 @@ class Retriever:
         self.db_session_maker = db_session_maker
         self.workspace_path = workspace_path
         self.collection_name = f"loco_rag_{frontend_id}"
+        self.shared_collection = shared_collection
+        if self.shared_collection == self.collection_name:
+            self.shared_collection = None
         self._rg_path = shutil.which("rg")
 
         logger.debug("retriever_initialized", frontend_id=frontend_id)
@@ -102,32 +106,23 @@ class Retriever:
                         error=str(e))
             return []
 
-        # Search vector store
-        try:
-            results = self.vector_store.search(
-                collection_name=self.collection_name,
+        retrieval_results = self._search_collection(
+            collection_name=self.collection_name,
+            query_vector=query_vector.tolist(),
+            limit=limit,
+            score_threshold=score_threshold,
+            frontend_id=self.frontend_id
+        )
+
+        if self.shared_collection:
+            shared_results = self._search_collection(
+                collection_name=self.shared_collection,
                 query_vector=query_vector.tolist(),
                 limit=limit,
-                score_threshold=score_threshold
+                score_threshold=score_threshold,
+                frontend_id="shared"
             )
-        except Exception as e:
-            logger.error("vector_search_failed",
-                        frontend_id=self.frontend_id,
-                        error=str(e))
-            return []
-
-        # Convert to RetrievalResult objects
-        retrieval_results = []
-        for hit in results:
-            payload = hit["payload"]
-
-            retrieval_results.append(RetrievalResult(
-                score=hit["score"],
-                content=payload.get("content", ""),
-                source=payload.get("source", payload.get("full_path", "unknown")),
-                metadata=payload,
-                frontend_id=self.frontend_id
-            ))
+            retrieval_results = self._merge_results(retrieval_results, shared_results)
 
         retrieval_results = self._rerank_results(retrieval_results, query)
 
@@ -136,6 +131,47 @@ class Retriever:
                    query=query[:50],
                    results=len(retrieval_results),
                    top_score=retrieval_results[0].score if retrieval_results else 0)
+
+        return retrieval_results
+
+    def _search_collection(
+        self,
+        collection_name: str,
+        query_vector: List[float],
+        limit: int,
+        score_threshold: float,
+        frontend_id: Optional[str]
+    ) -> List[RetrievalResult]:
+        if not collection_name:
+            return []
+
+        try:
+            results = self.vector_store.search(
+                collection_name=collection_name,
+                query_vector=query_vector,
+                limit=limit,
+                score_threshold=score_threshold
+            )
+        except Exception as e:
+            logger.error("vector_search_failed",
+                        frontend_id=frontend_id or self.frontend_id,
+                        collection=collection_name,
+                        error=str(e))
+            return []
+
+        retrieval_results = []
+        for hit in results:
+            payload = hit["payload"] or {}
+            metadata = dict(payload)
+            metadata["source_collection"] = collection_name
+
+            retrieval_results.append(RetrievalResult(
+                score=hit["score"],
+                content=payload.get("content", ""),
+                source=payload.get("source", payload.get("full_path", "unknown")),
+                metadata=metadata,
+                frontend_id=frontend_id
+            ))
 
         return retrieval_results
 
@@ -688,6 +724,13 @@ class Retriever:
             except:
                 ace_info = None
 
+            shared_info = None
+            if self.shared_collection:
+                try:
+                    shared_info = self.vector_store.get_collection_info(self.shared_collection)
+                except Exception:
+                    shared_info = None
+
             return {
                 "frontend_id": self.frontend_id,
                 "rag_collection": self.collection_name,
@@ -695,6 +738,8 @@ class Retriever:
                 "rag_status": rag_info["status"],
                 "ace_collection": ace_collection if ace_info else None,
                 "ace_bullets": ace_info["points_count"] if ace_info else 0,
+                "shared_collection": self.shared_collection if shared_info else None,
+                "shared_chunks": shared_info["points_count"] if shared_info else 0,
                 "vector_size": rag_info["vector_size"]
             }
         except Exception as e:

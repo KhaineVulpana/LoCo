@@ -138,6 +138,81 @@ class KnowledgeIndexer:
             "failed": failed
         }
 
+    async def index_files(
+        self,
+        file_paths: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Index a list of documentation files directly.
+
+        Args:
+            file_paths: List of file paths to index
+
+        Returns:
+            Statistics about indexing
+        """
+        files = [Path(path) for path in file_paths]
+        files = [path for path in files if path.exists() and path.is_file()]
+
+        if not files:
+            logger.warning("no_docs_files_found", frontend_id=self.frontend_id)
+            return {
+                "frontend_id": self.frontend_id,
+                "total_files": 0,
+                "indexed": 0,
+                "failed": 0,
+                "skipped": 0
+            }
+
+        logger.info("indexing_document_files",
+                   frontend_id=self.frontend_id,
+                   total_files=len(files))
+
+        collection_name = f"loco_rag_{self.frontend_id}"
+        self.vector_store.create_collection(
+            collection_name=collection_name,
+            vector_size=self.embedder.get_dimensions()
+        )
+
+        indexed = 0
+        failed = 0
+        skipped = 0
+
+        for file_path in files:
+            suffix = file_path.suffix.lower()
+            if suffix not in INDEXABLE_EXTENSIONS or suffix == ".jsonl":
+                skipped += 1
+                continue
+
+            try:
+                success = await self._index_doc_file(
+                    file_path,
+                    collection_name
+                )
+                if success:
+                    indexed += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                logger.error("file_indexing_failed",
+                           file=str(file_path),
+                           error=str(e))
+                failed += 1
+
+        logger.info("document_files_indexing_complete",
+                   frontend_id=self.frontend_id,
+                   indexed=indexed,
+                   failed=failed,
+                   skipped=skipped)
+
+        return {
+            "frontend_id": self.frontend_id,
+            "total_files": len(files),
+            "indexed": indexed,
+            "failed": failed,
+            "skipped": skipped
+        }
+
     async def _index_doc_file(
         self,
         file_path: Path,

@@ -1,0 +1,68 @@
+{
+  "sources": [
+    {
+      "id": "fastapi",
+      "type": "github_repo",
+      "repo": "fastapi/fastapi",
+      "include_paths": ["docs/en/docs"],
+      "extensions": [".md"],
+      "max_files": 200
+    },
+    {
+      "id": "pydantic",
+      "type": "github_repo",
+      "repo": "pydantic/pydantic",
+      "include_paths": ["docs"],
+      "extensions": [".md", ".rst"],
+      "max_files": 200
+    },
+    {
+      "id": "starlette",
+      "type": "github_repo",
+      "repo": "encode/starlette",
+      "include_paths": ["docs"],
+      "extensions": [".md"],
+      "max_files": 120
+    },
+    {
+      "id": "qdrant",
+      "type": "github_repo",
+      "repo": "qdrant/qdrant",
+      "include_paths": ["docs"],
+      "extensions": [".md", ".rst"],
+      "max_files": 200
+    },
+    {
+      "id": "vscode-docs",
+      "type": "github_repo",
+      "repo": "microsoft/vscode-docs",
+      "include_paths": ["docs/extensionAPI", "docs/editor/extension-guides"],
+      "extensions": [".md"],
+      "max_files": 200
+    },
+    {
+      "id": "nodejs",
+      "type": "github_repo",
+      "repo": "nodejs/node",
+      "include_paths": ["doc/api", "doc/guides"],
+      "extensions": [".md"],
+      "max_files": 200
+    },
+    {
+      "id": "threejs",
+      "type": "github_repo",
+      "repo": "mrdoob/three.js",
+      "include_paths": ["docs/api/en"],
+      "extensions": [".md"],
+      "max_files": 200
+    },
+    {
+      "id": "python",
+      "type": "github_repo",
+      "repo": "python/cpython",
+      "include_paths": ["Doc"],
+      "extensions": [".rst"],
+      "max_files": 250
+    }
+  ]
+}
