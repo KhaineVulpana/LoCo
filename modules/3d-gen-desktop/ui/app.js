@@ -3,6 +3,7 @@ import { OrbitControls } from 'https://unpkg.com/three@0.161.0/examples/jsm/cont
 import { extractMeshPayload } from './mesh_parser.js';
 
 const statusPill = document.getElementById('status-pill');
+const statusPillDup = document.getElementById('status-pill-dup');
 const viewerStatus = document.getElementById('viewer-status');
 const viewerOverlay = document.getElementById('viewer-overlay');
 const vertexCount = document.getElementById('vertex-count');
@@ -16,6 +17,9 @@ const connectBtn = document.getElementById('connect-btn');
 const composer = document.getElementById('composer');
 const messageInput = document.getElementById('message-input');
 const messagesEl = document.getElementById('messages');
+const sessionListEl = document.getElementById('session-list');
+const newSessionBtn = document.getElementById('new-session-btn');
+const activeSessionTitle = document.getElementById('active-session-title');
 const resetViewBtn = document.getElementById('reset-view');
 const wireframeBtn = document.getElementById('toggle-wireframe');
 
@@ -24,7 +28,13 @@ const FRONTEND_ID = '3d-gen';
 
 const state = {
   ws: null,
+  serverUrl: DEFAULT_SERVER,
+  token: '',
+  workspaceId: null,
   sessionId: null,
+  sessions: [],
+  messagesBySession: new Map(),
+  currentAssistantIndex: null,
   currentAssistantEl: null,
   assistantBuffer: '',
   wireframe: false,
@@ -35,6 +45,11 @@ function setStatus(online, label) {
   statusPill.textContent = label;
   statusPill.classList.toggle('online', online);
   statusPill.classList.toggle('offline', !online);
+  if (statusPillDup) {
+    statusPillDup.textContent = label;
+    statusPillDup.classList.toggle('online', online);
+    statusPillDup.classList.toggle('offline', !online);
+  }
 }
 
 function saveConfig() {
@@ -62,7 +77,17 @@ function loadConfig() {
   }
 }
 
-function addMessage(role, content) {
+function getSessionMessages(sessionId) {
+  if (!sessionId) {
+    return [];
+  }
+  if (!state.messagesBySession.has(sessionId)) {
+    state.messagesBySession.set(sessionId, []);
+  }
+  return state.messagesBySession.get(sessionId);
+}
+
+function renderMessage(role, content) {
   const messageEl = document.createElement('div');
   messageEl.className = `message ${role}`;
   messageEl.textContent = content;
@@ -71,20 +96,59 @@ function addMessage(role, content) {
   return messageEl;
 }
 
+function renderMessages(sessionId) {
+  messagesEl.innerHTML = '';
+  const messages = getSessionMessages(sessionId);
+  for (const message of messages) {
+    renderMessage(message.role, message.content);
+  }
+}
+
+function addMessage(role, content) {
+  if (!state.sessionId) {
+    return null;
+  }
+  const messages = getSessionMessages(state.sessionId);
+  const entry = { role, content };
+  messages.push(entry);
+  return renderMessage(role, content);
+}
+
 function appendAssistantDelta(delta) {
+  if (!state.sessionId) {
+    return;
+  }
+  const messages = getSessionMessages(state.sessionId);
   if (!state.currentAssistantEl) {
-    state.currentAssistantEl = addMessage('assistant', '');
+    const entry = { role: 'assistant', content: '' };
+    messages.push(entry);
+    state.currentAssistantIndex = messages.length - 1;
+    state.currentAssistantEl = renderMessage('assistant', '');
   }
   state.assistantBuffer += delta;
   state.currentAssistantEl.textContent = state.assistantBuffer;
+  if (state.currentAssistantIndex !== null) {
+    messages[state.currentAssistantIndex].content = state.assistantBuffer;
+  }
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 function finalizeAssistantMessage(message) {
+  if (!state.sessionId) {
+    return;
+  }
+
+  const messages = getSessionMessages(state.sessionId);
   if (!state.currentAssistantEl) {
-    state.currentAssistantEl = addMessage('assistant', message);
+    const entry = { role: 'assistant', content: message };
+    messages.push(entry);
+    state.currentAssistantEl = renderMessage('assistant', message);
+    state.currentAssistantIndex = messages.length - 1;
   } else {
     state.currentAssistantEl.textContent = message;
+    if (state.currentAssistantIndex !== null) {
+      messages[state.currentAssistantIndex].content = message;
+    }
   }
 
   const meshPayload = extractMeshPayload(message);
@@ -93,6 +157,7 @@ function finalizeAssistantMessage(message) {
   }
 
   state.currentAssistantEl = null;
+  state.currentAssistantIndex = null;
   state.assistantBuffer = '';
 }
 
@@ -137,6 +202,103 @@ function buildHeaders(token) {
   return headers;
 }
 
+function updateActiveSessionTitle(session) {
+  if (!activeSessionTitle) {
+    return;
+  }
+  activeSessionTitle.textContent = session?.title || 'New chat';
+}
+
+function renderSessions() {
+  if (!sessionListEl) {
+    return;
+  }
+  sessionListEl.innerHTML = '';
+  if (!state.sessions.length) {
+    const empty = document.createElement('div');
+    empty.className = 'session-empty';
+    empty.textContent = 'No chats yet. Connect to start.';
+    sessionListEl.appendChild(empty);
+    return;
+  }
+  state.sessions.forEach((session) => {
+    const item = document.createElement('div');
+    item.className = `session-item${session.id === state.sessionId ? ' active' : ''}`;
+    const title = document.createElement('div');
+    title.className = 'session-title';
+    title.textContent = session.title;
+    const subtitle = document.createElement('div');
+    subtitle.className = 'session-subtitle';
+    subtitle.textContent = session.meta || 'Ready';
+    item.appendChild(title);
+    item.appendChild(subtitle);
+    item.addEventListener('click', () => {
+      if (session.id !== state.sessionId) {
+        switchSession(session.id);
+      }
+    });
+    sessionListEl.appendChild(item);
+  });
+}
+
+function addSession(session) {
+  const entry = {
+    id: session.id,
+    title: session.title || 'New chat',
+    meta: 'Connected'
+  };
+  state.sessions = [entry, ...state.sessions.filter((item) => item.id !== entry.id)];
+  renderSessions();
+  return entry;
+}
+
+function updateSessionTitleFromMessage(message) {
+  if (!message || !state.sessionId) {
+    return;
+  }
+  const session = state.sessions.find((item) => item.id === state.sessionId);
+  if (!session || session.title !== 'New chat') {
+    return;
+  }
+  const trimmed = message.replace(/\s+/g, ' ').trim();
+  session.title = trimmed.slice(0, 40) || 'New chat';
+  renderSessions();
+  updateActiveSessionTitle(session);
+}
+
+async function switchSession(sessionId) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session) {
+    return;
+  }
+  state.sessionId = sessionId;
+  state.currentAssistantEl = null;
+  state.currentAssistantIndex = null;
+  state.assistantBuffer = '';
+  renderMessages(sessionId);
+  updateActiveSessionTitle(session);
+  renderSessions();
+
+  if (!state.serverUrl || !state.workspaceId) {
+    return;
+  }
+
+  if (state.ws) {
+    state.ws.close();
+    state.ws = null;
+  }
+
+  try {
+    setStatus(false, 'connecting');
+    await openWebSocket(state.serverUrl, state.token);
+    setStatus(true, 'online');
+  } catch (error) {
+    console.error(error);
+    addMessage('assistant', 'Failed to switch session.');
+    setStatus(false, 'offline');
+  }
+}
+
 async function connect() {
   const serverUrl = serverInput.value.trim() || DEFAULT_SERVER;
   const workspacePath = workspaceInput.value.trim();
@@ -153,12 +315,41 @@ async function connect() {
   try {
     const workspace = await registerWorkspace(serverUrl, token, workspacePath);
     const session = await createSession(serverUrl, token, workspace.id);
-    state.sessionId = session.id;
+
+    state.serverUrl = serverUrl;
+    state.token = token;
+    state.workspaceId = workspace.id;
+    state.sessions = [];
+    state.messagesBySession.clear();
+
+    const entry = addSession(session);
+    state.sessionId = entry.id;
+    updateActiveSessionTitle(entry);
+    renderMessages(entry.id);
+
     await openWebSocket(serverUrl, token);
     setStatus(true, 'online');
   } catch (error) {
     console.error(error);
     addMessage('assistant', `Connection failed: ${error.message}`);
+    setStatus(false, 'offline');
+  }
+}
+
+async function createNewSession() {
+  if (!state.serverUrl || !state.workspaceId) {
+    addMessage('assistant', 'Connect to a workspace before creating a new chat.');
+    return;
+  }
+
+  setStatus(false, 'connecting');
+  try {
+    const session = await createSession(state.serverUrl, state.token, state.workspaceId);
+    const entry = addSession(session);
+    await switchSession(entry.id);
+  } catch (error) {
+    console.error(error);
+    addMessage('assistant', `Failed to create session: ${error.message}`);
     setStatus(false, 'offline');
   }
 }
@@ -209,6 +400,7 @@ function sendUserMessage(message) {
   }
 
   addMessage('user', message);
+  updateSessionTitleFromMessage(message);
 
   state.ws.send(JSON.stringify({
     type: 'client.user_message',
@@ -356,6 +548,12 @@ connectBtn.addEventListener('click', () => {
   connect();
 });
 
+if (newSessionBtn) {
+  newSessionBtn.addEventListener('click', () => {
+    createNewSession();
+  });
+}
+
 composer.addEventListener('submit', (event) => {
   event.preventDefault();
   const message = messageInput.value.trim();
@@ -382,4 +580,5 @@ window.addEventListener('resize', () => {
 });
 
 loadConfig();
+renderSessions();
 initViewer();

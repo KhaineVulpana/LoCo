@@ -77,6 +77,56 @@ def list_bullets(
     }
 
 
+@router.get("/{frontend_id}/metrics")
+def get_metrics(
+    frontend_id: str,
+    limit: int = 1000,
+    vector_store: VectorStore = Depends(get_vector_store)
+):
+    """Get ACE playbook metrics for a frontend"""
+    collection_name = f"loco_ace_{frontend_id}"
+
+    try:
+        playbook = Playbook.load_from_vector_db(
+            vector_store=vector_store,
+            collection_name=collection_name,
+            max_bullets=limit
+        )
+    except Exception as e:
+        logger.error("ace_metrics_failed",
+                    frontend_id=frontend_id,
+                    error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+    bullets = playbook.get_all_bullets()
+    helpful_total = sum(b.helpful_count for b in bullets)
+    harmful_total = sum(b.harmful_count for b in bullets)
+    average_score = (
+        sum(b.get_score() for b in bullets) / len(bullets)
+        if bullets else 0.0
+    )
+    sections = {
+        section: len(ids)
+        for section, ids in playbook.sections.items()
+    }
+
+    try:
+        collection_info = vector_store.get_collection_info(collection_name)
+    except Exception:
+        collection_info = None
+
+    return {
+        "success": True,
+        "frontend_id": frontend_id,
+        "total_bullets": len(bullets),
+        "sections": sections,
+        "helpful_total": helpful_total,
+        "harmful_total": harmful_total,
+        "average_score": average_score,
+        "collection": collection_info
+    }
+
+
 @router.post("/{frontend_id}/bullets")
 def create_bullet(
     frontend_id: str,
@@ -267,11 +317,11 @@ def apply_feedback(
             {"bullet_id": item.bullet_id, "tag": item.tag}
             for item in request.feedback
         ]
-        playbook.apply_bullet_feedback(feedback_payload)
+        updated_ids = playbook.apply_bullet_feedback(feedback_payload)
 
-        for item in request.feedback:
+        for bullet_id in updated_ids:
             playbook.save_bullet_to_vector_db(
-                bullet_id=item.bullet_id,
+                bullet_id=bullet_id,
                 vector_store=vector_store,
                 embedding_manager=embedding_manager,
                 collection_name=collection_name
@@ -280,7 +330,8 @@ def apply_feedback(
         return {
             "success": True,
             "frontend_id": frontend_id,
-            "updated": len(request.feedback)
+            "updated": len(updated_ids),
+            "skipped": max(0, len(request.feedback) - len(updated_ids))
         }
     except Exception as e:
         logger.error("ace_feedback_failed",

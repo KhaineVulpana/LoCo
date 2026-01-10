@@ -4,6 +4,8 @@
  */
 
 import * as vscode from 'vscode';
+import * as path from 'path';
+import { TextDecoder } from 'util';
 
 export interface WorkspaceContext {
     active_editor?: {
@@ -50,13 +52,18 @@ export interface WorkspaceContext {
             timestamp: string;
         }>;
     };
-    mentions?: Array<{
-        type: string;
-        path?: string;
-        name?: string;
-        line?: number;
-    }>;
+    mentions?: Mention[];
     command?: string;
+    include_workspace_rag?: boolean;
+}
+
+export interface Mention {
+    type: string;
+    path?: string;
+    name?: string;
+    line?: number;
+    content?: string;
+    truncated?: boolean;
 }
 
 export class ContextGatherer {
@@ -68,15 +75,21 @@ export class ContextGatherer {
         // This is a placeholder for future implementation
     }
 
-    async gatherContext(): Promise<WorkspaceContext> {
+    async gatherContext(message?: string): Promise<WorkspaceContext> {
         const config = vscode.workspace.getConfiguration('locoAgent');
         const autoContext = config.get<boolean>('autoContext', true);
 
-        if (!autoContext) {
-            return {};
+        const context: WorkspaceContext = {
+            include_workspace_rag: config.get<boolean>('includeWorkspaceRag', true)
+        };
+
+        if (message) {
+            context.mentions = await this.resolveMentions(message);
         }
 
-        const context: WorkspaceContext = {};
+        if (!autoContext) {
+            return context;
+        }
 
         // Get active editor
         const editor = vscode.window.activeTextEditor;
@@ -200,8 +213,102 @@ export class ContextGatherer {
     private getRelativePath(absolutePath: string): string {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (workspaceFolder) {
-            return absolutePath.replace(workspaceFolder.uri.fsPath + '/', '');
+            const relative = path.relative(workspaceFolder.uri.fsPath, absolutePath);
+            return relative.replace(/\\/g, '/');
         }
         return absolutePath;
+    }
+
+    private parseMentions(message: string): string[] {
+        const regex = /@([A-Za-z0-9_./-]+)/g;
+        const matches = new Set<string>();
+        let match: RegExpExecArray | null;
+        while ((match = regex.exec(message)) !== null) {
+            matches.add(match[1]);
+        }
+        return Array.from(matches);
+    }
+
+    private async resolveMentions(message: string): Promise<Mention[]> {
+        const mentions: Mention[] = [];
+        const tokens = this.parseMentions(message);
+        if (!tokens.length) {
+            return mentions;
+        }
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return mentions;
+        }
+
+        const maxMentions = 5;
+        for (const token of tokens.slice(0, maxMentions)) {
+            const resolved = await this.resolveFileMention(token, workspaceFolder);
+            if (resolved) {
+                mentions.push(resolved);
+            }
+        }
+
+        return mentions;
+    }
+
+    private async resolveFileMention(
+        token: string,
+        workspaceFolder: vscode.WorkspaceFolder
+    ): Promise<Mention | null> {
+        const maxChars = 4000;
+        const workspacePath = workspaceFolder.uri.fsPath;
+        const directPath = path.join(workspacePath, token);
+
+        const readFileContent = async (uri: vscode.Uri) => {
+            const bytes = await vscode.workspace.fs.readFile(uri);
+            const content = new TextDecoder('utf-8').decode(bytes);
+            const truncated = content.length > maxChars;
+            return {
+                content: truncated ? content.slice(0, maxChars) : content,
+                truncated
+            };
+        };
+
+        try {
+            const stat = await vscode.workspace.fs.stat(vscode.Uri.file(directPath));
+            if (stat.type === vscode.FileType.File) {
+                const fileUri = vscode.Uri.file(directPath);
+                const relative = this.getRelativePath(directPath);
+                const { content, truncated } = await readFileContent(fileUri);
+                return {
+                    type: 'file',
+                    path: relative,
+                    content,
+                    truncated
+                };
+            }
+        } catch {
+            // Fall back to glob search
+        }
+
+        const glob = token.includes('/') ? token : `**/${token}`;
+        const matches = await vscode.workspace.findFiles(
+            glob,
+            '**/{.git,node_modules,dist,build,out,.venv,venv}/**',
+            5
+        );
+
+        if (!matches.length) {
+            return {
+                type: 'unknown',
+                name: token
+            };
+        }
+
+        const target = matches[0];
+        const relative = this.getRelativePath(target.fsPath);
+        const { content, truncated } = await readFileContent(target);
+        return {
+            type: 'file',
+            path: relative,
+            content,
+            truncated
+        };
     }
 }

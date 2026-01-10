@@ -15,6 +15,8 @@ class Tool(ABC):
     name: str
     description: str
     parameters: Dict[str, Any]
+    requires_approval: bool = False
+    approval_scope: str = "tool"
 
     @abstractmethod
     async def execute(self, **kwargs) -> Dict[str, Any]:
@@ -31,6 +33,10 @@ class Tool(ABC):
                 "parameters": self.parameters
             }
         }
+
+    def approval_prompt(self, arguments: Dict[str, Any]) -> Optional[str]:
+        """Optional approval prompt for tools that require user confirmation."""
+        return None
 
 
 class ToolRegistry:

@@ -7,6 +7,7 @@ This directory contains scripts to package each component of LoCo Agent for dist
 - **Server**: Windows installer (.exe), Linux/macOS self-extracting installer
 - **VS Code Extension**: VSIX package for VS Code marketplace
 - **Android App**: Signed APK for distribution
+- **3D-Gen Desktop**: Tauri bundles (MSI/NSIS on Windows)
 
 ## Prerequisites
 
@@ -50,7 +51,7 @@ This directory contains scripts to package each component of LoCo Agent for dist
 build-server-windows.bat
 ```
 
-**Output**: `releases/LoCoAgent-Server-Setup.exe`
+**Output**: `out/LoCoAgent-Server-Setup.exe`
 
 **What it does**:
 1. Builds standalone executable with PyInstaller
@@ -77,8 +78,8 @@ chmod +x build-server-linux.sh
 ```
 
 **Output**: 
-- Linux: `releases/LoCoAgent-Server-Linux.run` (self-extracting)
-- macOS: `releases/LoCoAgent-Server-macOS.tar.gz`
+- Linux: `out/LoCoAgent-Server-Linux.run` (self-extracting)
+- macOS: `out/LoCoAgent-Server-macOS.tar.gz`
 
 **What it does**:
 1. Builds standalone executable with PyInstaller
@@ -116,7 +117,7 @@ chmod +x build-extension.sh
 build-extension.bat
 ```
 
-**Output**: `releases/loco-agent-<version>.vsix`
+**Output**: `out/loco-agent-<version>.vsix`
 
 **What it does**:
 1. Installs npm dependencies
@@ -127,7 +128,7 @@ build-extension.bat
 **Installation**:
 ```bash
 # Via command line
-code --install-extension releases/loco-agent-<version>.vsix
+code --install-extension out/loco-agent-<version>.vsix
 
 # Or via VS Code UI:
 # Extensions → ... menu → Install from VSIX
@@ -160,14 +161,14 @@ chmod +x ../../packaging/build-android-apk.sh
 1. **Debug APK**: Unsigned, for testing only
 2. **Release APK**: Signed with keystore, ready for distribution
 
-**Output**: `releases/LoCoAgent-<version>-<debug|release>.apk`
+**Output**: `out/LoCoAgent-<version>-<debug|release>.apk`
 
 **What it does**:
 
 For **Debug** build:
 1. Cleans previous builds
 2. Builds unsigned debug APK
-3. Copies to releases directory
+3. Copies to out directory
 
 For **Release** build:
 1. Checks for/creates keystore
@@ -175,7 +176,7 @@ For **Release** build:
 3. Runs lint checks
 4. Builds signed release APK
 5. Verifies signature
-6. Copies to releases directory
+6. Copies to out directory
 
 **Keystore Management**:
 - First run creates new keystore at `keystore/loco-release.keystore`
@@ -186,7 +187,7 @@ For **Release** build:
 **Installation on Device**:
 ```bash
 # Via ADB
-adb install -r releases/LoCoAgent-<version>-release.apk
+adb install -r out/LoCoAgent-<version>-release.apk
 
 # Or transfer APK to device and install manually
 # Settings → Security → Unknown Sources (enable)
@@ -196,18 +197,31 @@ adb install -r releases/LoCoAgent-<version>-release.apk
 
 ```
 LoCo/
-├── releases/
-│   ├── LoCoAgent-Server-Setup.exe          # Windows installer
-│   ├── LoCoAgent-Server-Linux.run          # Linux installer
-│   ├── LoCoAgent-Server-macOS.tar.gz       # macOS package
-│   ├── loco-agent-<version>.vsix           # VS Code extension
-│   ├── LoCoAgent-<version>-debug.apk       # Android debug
-│   └── LoCoAgent-<version>-release.apk     # Android release
+    ├── out/
+    │   ├── LoCoAgent-Server-Setup.exe          # Windows installer
+    │   ├── LoCoAgent-Server-Linux.run          # Linux installer
+    │   ├── LoCoAgent-Server-macOS.tar.gz       # macOS package
+    │   ├── loco-agent-<version>.vsix           # VS Code extension
+    │   ├── LoCoAgent-<version>-debug.apk       # Android debug
+    │   └── LoCoAgent-<version>-release.apk     # Android release
 ├── installer_build/                         # Temp files (server)
 ├── backend/dist/                            # PyInstaller output
-└── keystore/                               # Android signing keys
-    └── loco-release.keystore               # KEEP SECURE!
+    └── keystore/                               # Android signing keys
+        └── loco-release.keystore               # KEEP SECURE!
 ```
+
+### 4. 3D-Gen Desktop Packaging (Tauri)
+
+```bash
+# From repo root (Windows)
+packaging\build-3d-gen-desktop.bat
+
+# Linux/macOS
+chmod +x packaging/build-3d-gen-desktop.sh
+./packaging/build-3d-gen-desktop.sh
+```
+
+**Output**: Tauri bundle artifacts in `out/` (MSI/NSIS on Windows).
 
 ## Build All Script
 
@@ -230,7 +244,7 @@ cd modules/android-app
 ../../packaging/build-android-apk.sh
 cd ../..
 
-echo "All builds complete! Check releases/ directory"
+echo "All builds complete! Check out/ directory"
 ```
 
 ## Version Management

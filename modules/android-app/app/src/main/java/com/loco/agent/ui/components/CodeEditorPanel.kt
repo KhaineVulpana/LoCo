@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.loco.agent.ui.viewmodel.FileContent
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,7 +87,7 @@ fun CodeEditorPanel(
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                containerColor = MaterialTheme.colorScheme.surface
             )
         )
 
@@ -95,23 +96,31 @@ fun CodeEditorPanel(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .background(MaterialTheme.colorScheme.surface)
                     .padding(16.dp)
             ) {
-                BasicTextField(
-                    value = editedContent,
-                    onValueChange = { 
-                        editedContent = it
-                        hasUnsavedChanges = it != file.content
-                    },
+                Surface(
                     modifier = Modifier.fillMaxSize(),
-                    textStyle = TextStyle(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
-                )
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Box(modifier = Modifier.padding(16.dp)) {
+                        BasicTextField(
+                            value = editedContent,
+                            onValueChange = {
+                                editedContent = it
+                                hasUnsavedChanges = it != file.content
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                            textStyle = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
             }
         } else {
             Box(

@@ -2,7 +2,7 @@
 Configuration settings
 """
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 import secrets
 
@@ -39,10 +39,15 @@ class Settings(BaseSettings):
     # Context
     MAX_CONTEXT_TOKENS: int = 16384
     MAX_RESPONSE_TOKENS: int = 4096
+    RAG_CONTEXT_TOKENS: int = 1200
+    WORKSPACE_CONTEXT_TOKENS: int = 1200
+    ACE_CONTEXT_TOKENS: int = 800
+    TEST_LOOP_MAX_ATTEMPTS: int = 3
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True
+    )
 
 
 settings = Settings()

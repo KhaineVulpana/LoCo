@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,7 +36,7 @@ fun SettingsPanel(
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                containerColor = MaterialTheme.colorScheme.surface
             )
         )
 
@@ -58,7 +59,13 @@ fun SettingsPanel(
                     leadingIcon = {
                         Icon(Icons.Default.Dns, contentDescription = null)
                     },
-                    singleLine = true
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                    )
                 )
                 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -81,8 +88,6 @@ fun SettingsPanel(
                     onCheckedChange = { autoConnectEnabled = it }
                 )
             }
-
-            Divider()
 
             // Appearance Settings
             SettingsSection(title = "Appearance") {
@@ -120,8 +125,6 @@ fun SettingsPanel(
                 )
             }
 
-            Divider()
-
             // About Section
             SettingsSection(title = "About") {
                 SettingInfoRow(
@@ -144,8 +147,6 @@ fun SettingsPanel(
                     Text("View on GitHub")
                 }
             }
-
-            Divider()
 
             // Danger Zone
             SettingsSection(
@@ -182,7 +183,17 @@ fun SettingsSection(
             style = MaterialTheme.typography.titleMedium,
             color = titleColor
         )
-        content()
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 1.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                content = content
+            )
+        }
     }
 }
 

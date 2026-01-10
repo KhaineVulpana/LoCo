@@ -299,6 +299,8 @@ async def websocket_endpoint(
                     agent = Agent(
                         workspace_path=workspace_path,
                         frontend_id=frontend_id,
+                        workspace_id=workspace_id,
+                        db_session_maker=async_session_maker,
                         model_manager=model_manager,
                         embedding_manager=embedding_manager,
                         vector_store=vector_store
@@ -334,7 +336,11 @@ async def websocket_endpoint(
                 logger.info("approval_received",
                           request_id=message.get("request_id"),
                           approved=message.get("approved"))
-                # TODO: Handle approval
+                request_id = message.get("request_id")
+                approved = bool(message.get("approved"))
+                agent = active_agents.get(session_id)
+                if agent and request_id:
+                    agent.resolve_approval(request_id, approved)
 
             else:
                 logger.warning("unknown_message_type", type=message_type)

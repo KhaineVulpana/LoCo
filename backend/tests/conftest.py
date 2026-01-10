@@ -190,6 +190,9 @@ class FakeEmbeddingManager:
     def get_dimensions(self) -> int:
         return self._dimensions
 
+    def get_model_name(self) -> str:
+        return "fake-embedding"
+
     def _embed_text(self, text: str) -> FakeEmbedding:
         base = sum(ord(c) for c in text) % 97
         vec = [((base + i * 7) % 97) / 97.0 for i in range(self._dimensions)]

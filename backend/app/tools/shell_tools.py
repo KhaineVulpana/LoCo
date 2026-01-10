@@ -16,6 +16,8 @@ class RunCommandTool(Tool):
 
     name = "run_command"
     description = "Execute a shell command in the workspace directory"
+    requires_approval = True
+    approval_scope = "command"
     parameters = {
         "type": "object",
         "properties": {
@@ -34,6 +36,10 @@ class RunCommandTool(Tool):
 
     def __init__(self, workspace_path: str):
         self.workspace_path = workspace_path
+
+    def approval_prompt(self, arguments: Dict[str, Any]) -> str:
+        command = arguments.get("command", "")
+        return f"Approve command execution: {command}"
 
     async def execute(self, command: str, timeout: int = 30) -> Dict[str, Any]:
         """Execute shell command"""
@@ -78,3 +84,12 @@ class RunCommandTool(Tool):
                 "success": False,
                 "error": f"Failed to execute command: {str(e)}"
             }
+
+
+class RunTestsTool(RunCommandTool):
+    """Tool for running tests with optional rerun loops."""
+
+    name = "run_tests"
+    description = "Run a test command in the workspace directory"
+    requires_approval = True
+    approval_scope = "command"

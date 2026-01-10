@@ -53,9 +53,9 @@ if not exist "out\" (
 
 echo [5/5] Packaging extension...
 
-REM Create releases directory
+REM Create out directory
 cd ..\..
-if not exist "releases" mkdir releases
+if not exist "out" mkdir out
 
 REM Get version from package.json
 cd modules/vscode-extension
@@ -64,11 +64,11 @@ set VERSION=%VERSION:"=%
 echo Extension version: %VERSION%
 
 REM Package the extension
-call vsce package --out ..\..\releases\
+call vsce package --out ..\..\out\
 
 cd ..\..
 
-set VSIX_FILE=releases\loco-agent-%VERSION%.vsix
+set VSIX_FILE=out\loco-agent-%VERSION%.vsix
 
 if not exist "%VSIX_FILE%" (
     echo ERROR: Packaging failed! .vsix file not created.

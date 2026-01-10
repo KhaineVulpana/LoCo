@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 data class TerminalLine(
     val text: String,
@@ -51,7 +52,9 @@ fun TerminalPanel(
     ) {
         // Header
         Surface(
-            tonalElevation = 3.dp
+            tonalElevation = 3.dp,
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -128,7 +131,9 @@ fun TerminalPanel(
 
         // Command Input
         Surface(
-            tonalElevation = 2.dp
+            tonalElevation = 2.dp,
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
         ) {
             Row(
                 modifier = Modifier

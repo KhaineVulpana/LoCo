@@ -17,12 +17,23 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF90CAF9),
-    secondary = Color(0xFF81C784),
-    tertiary = Color(0xFFFFB74D),
-    background = Color(0xFF121212),
-    surface = Color(0xFF1E1E1E),
-    surfaceVariant = Color(0xFF2C2C2C)
+    primary = Color(0xFFF2A162),
+    onPrimary = Color(0xFF2B1B10),
+    secondary = Color(0xFF7DD3A5),
+    onSecondary = Color(0xFF0F1A14),
+    tertiary = Color(0xFFF2C14E),
+    onTertiary = Color(0xFF1F1404),
+    background = Color(0xFF0F1115),
+    onBackground = Color(0xFFF5F6F8),
+    surface = Color(0xFF151922),
+    onSurface = Color(0xFFF5F6F8),
+    surfaceVariant = Color(0xFF1E2431),
+    onSurfaceVariant = Color(0xFFB6BCC8),
+    outline = Color(0xFF2A3242),
+    error = Color(0xFFFF7A7A),
+    onError = Color(0xFF2B1111),
+    errorContainer = Color(0xFF3A1A1A),
+    onErrorContainer = Color(0xFFFBC0C0)
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -36,8 +47,8 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun LoCoTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    darkTheme: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -53,8 +64,8 @@ fun LoCoTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            window.statusBarColor = colorScheme.background.toArgb()
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
         }
     }
 

@@ -7,6 +7,7 @@ import WebSocket from 'ws';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
+import { Readable } from 'stream';
 
 export interface ServerMessage {
     type: string;
@@ -14,6 +15,7 @@ export interface ServerMessage {
 }
 
 export type MessageHandler = (message: ServerMessage) => void;
+export type IndexProgressHandler = (progress: any) => void;
 
 export class ServerClient {
     private ws: WebSocket | null = null;
@@ -22,6 +24,11 @@ export class ServerClient {
     private maxReconnectAttempts = 5;
     private reconnectDelay = 1000;
     private sessionId: string | null = null;
+    private workspaceId: string | null = null;
+    private indexProgressHandlers: IndexProgressHandler[] = [];
+    private indexStreamController: AbortController | null = null;
+    private serverUrl: string | null = null;
+    private authToken: string | undefined;
 
     constructor(private context: vscode.ExtensionContext) {}
 
@@ -29,12 +36,36 @@ export class ServerClient {
         const config = vscode.workspace.getConfiguration('locoAgent');
         const serverUrl = config.get<string>('serverUrl', 'http://localhost:3199');
         const authEnabled = config.get<boolean>('authEnabled', false);
+        const autoIndexWorkspace = config.get<boolean>('autoIndexWorkspace', false);
+        const autoWatchWorkspace = config.get<boolean>('autoWatchWorkspace', false);
+        const usePollingWatcher = config.get<boolean>('usePollingWatcher', false);
 
         // Get or create token
         const token = authEnabled ? await this.getOrCreateToken() : undefined;
-
+        this.serverUrl = serverUrl;
+        this.authToken = token;
         // Register workspace if needed
-        await this.registerWorkspace(serverUrl, token);
+        this.workspaceId = await this.registerWorkspace(
+            serverUrl,
+            token,
+            autoIndexWorkspace,
+            autoWatchWorkspace,
+            usePollingWatcher
+        );
+
+        await this.applyWorkspacePolicyOverrides(serverUrl, token);
+
+        if (autoIndexWorkspace || autoWatchWorkspace) {
+            const autoStart = autoIndexWorkspace || autoWatchWorkspace;
+            this.startIndexStream(serverUrl, token, 'vscode', autoStart, autoWatchWorkspace, usePollingWatcher).catch((error) => {
+                console.warn('Index stream failed:', error);
+            });
+        }
+        if (autoWatchWorkspace) {
+            this.startWorkspaceWatch(serverUrl, token, 'vscode', usePollingWatcher).catch((error) => {
+                console.warn('Workspace watch start failed:', error);
+            });
+        }
 
         // Create session
         this.sessionId = await this.createSession(serverUrl, token);
@@ -104,8 +135,27 @@ export class ServerClient {
         }
     }
 
+    sendApprovalResponse(requestId: string, approved: boolean): void {
+        this.send({
+            type: 'client.approval_response',
+            request_id: requestId,
+            approved
+        });
+    }
+
     onMessage(handler: MessageHandler): void {
         this.messageHandlers.push(handler);
+    }
+
+    onIndexProgress(handler: IndexProgressHandler): void {
+        this.indexProgressHandlers.push(handler);
+    }
+
+    async syncWorkspacePolicy(): Promise<void> {
+        if (!this.serverUrl || !this.workspaceId) {
+            return;
+        }
+        await this.applyWorkspacePolicyOverrides(this.serverUrl, this.authToken);
     }
 
     private handleMessage(message: ServerMessage): void {
@@ -181,12 +231,23 @@ export class ServerClient {
         ).join('');
     }
 
-    private async registerWorkspace(serverUrl: string, token?: string): Promise<string> {
+    private async registerWorkspace(
+        serverUrl: string,
+        token?: string,
+        autoIndexWorkspace: boolean = false,
+        autoWatchWorkspace: boolean = false,
+        usePollingWatcher: boolean = false
+    ): Promise<string> {
+        if (this.workspaceId) {
+            return this.workspaceId;
+        }
+
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             throw new Error('No workspace folder open');
         }
 
+        const frontendId = 'vscode';
         const headers: Record<string, string> = {
             'Content-Type': 'application/json'
         };
@@ -199,7 +260,11 @@ export class ServerClient {
             headers,
             body: JSON.stringify({
                 path: workspaceFolder.uri.fsPath,
-                name: workspaceFolder.name
+                name: workspaceFolder.name,
+                frontend_id: frontendId,
+                auto_index: autoIndexWorkspace,
+                auto_watch: autoWatchWorkspace,
+                use_polling: usePollingWatcher
             })
         });
 
@@ -217,6 +282,7 @@ export class ServerClient {
                 const workspaces: any = await listResponse.json();
                 const existing = workspaces.find((w: any) => w.path === workspaceFolder.uri.fsPath);
                 if (existing) {
+                    this.workspaceId = existing.id;
                     return existing.id;
                 }
             }
@@ -225,6 +291,7 @@ export class ServerClient {
         }
 
         const data: any = await response.json();
+        this.workspaceId = data.id;
         return data.id;
     }
 
@@ -259,6 +326,202 @@ export class ServerClient {
 
         const data: any = await response.json();
         return data.id;
+    }
+
+    private notifyIndexProgress(payload: any): void {
+        for (const handler of this.indexProgressHandlers) {
+            handler(payload);
+        }
+    }
+
+    private async startIndexStream(
+        serverUrl: string,
+        token: string | undefined,
+        frontendId: string,
+        autoStart: boolean,
+        autoWatch: boolean,
+        usePollingWatcher: boolean
+    ): Promise<void> {
+        if (!this.workspaceId) {
+            return;
+        }
+
+        if (this.indexStreamController) {
+            this.indexStreamController.abort();
+        }
+
+        const url = new URL(`${serverUrl}/v1/workspaces/${this.workspaceId}/index/stream`);
+        url.searchParams.set('frontend_id', frontendId);
+        url.searchParams.set('auto_start', autoStart ? 'true' : 'false');
+        url.searchParams.set('auto_watch', autoWatch ? 'true' : 'false');
+        url.searchParams.set('use_polling', usePollingWatcher ? 'true' : 'false');
+
+        const headers: Record<string, string> = {
+            'Accept': 'text/event-stream'
+        };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const controller = new AbortController();
+        this.indexStreamController = controller;
+
+        const response = await fetch(url.toString(), {
+            headers,
+            signal: controller.signal
+        });
+
+        if (!response.ok || !response.body) {
+            throw new Error(`Index stream failed: ${response.statusText}`);
+        }
+
+        const decoder = new TextDecoder();
+        const stream = Readable.fromWeb(response.body as any);
+        let buffer = '';
+
+        for await (const chunk of stream) {
+            buffer += decoder.decode(chunk, { stream: true });
+            let separator = buffer.indexOf('\n\n');
+            while (separator !== -1) {
+                const eventBlock = buffer.slice(0, separator);
+                buffer = buffer.slice(separator + 2);
+                separator = buffer.indexOf('\n\n');
+
+                const lines = eventBlock.split('\n');
+                for (const line of lines) {
+                    if (!line.startsWith('data:')) {
+                        continue;
+                    }
+                    const data = line.slice(5).trim();
+                    if (!data) {
+                        continue;
+                    }
+                    try {
+                        const payload = JSON.parse(data);
+                        this.notifyIndexProgress(payload);
+                    } catch (error) {
+                        console.warn('Failed to parse index progress:', error);
+                    }
+                }
+            }
+        }
+    }
+
+    private async startWorkspaceWatch(
+        serverUrl: string,
+        token: string | undefined,
+        frontendId: string,
+        usePollingWatcher: boolean
+    ): Promise<void> {
+        if (!this.workspaceId) {
+            return;
+        }
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json'
+        };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const response = await fetch(`${serverUrl}/v1/workspaces/${this.workspaceId}/watch/start`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                frontend_id: frontendId,
+                use_polling: usePollingWatcher
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to start workspace watcher: ${response.statusText}`);
+        }
+    }
+
+    private buildPolicyOverrides(config: vscode.WorkspaceConfiguration): Record<string, any> {
+        const overrides: Record<string, any> = {};
+
+        const commandApproval = this.getExplicitSetting<string>(config, 'policy.commandApproval');
+        if (commandApproval) {
+            overrides.command_approval = commandApproval;
+        }
+
+        const allowedCommands = this.getExplicitSetting<string[]>(config, 'policy.allowedCommands');
+        if (Array.isArray(allowedCommands)) {
+            overrides.allowed_commands = allowedCommands;
+        }
+
+        const blockedCommands = this.getExplicitSetting<string[]>(config, 'policy.blockedCommands');
+        if (Array.isArray(blockedCommands)) {
+            overrides.blocked_commands = blockedCommands;
+        }
+
+        const allowedReadGlobs = this.getExplicitSetting<string[]>(config, 'policy.allowedReadGlobs');
+        if (Array.isArray(allowedReadGlobs)) {
+            overrides.allowed_read_globs = allowedReadGlobs;
+        }
+
+        const allowedWriteGlobs = this.getExplicitSetting<string[]>(config, 'policy.allowedWriteGlobs');
+        if (Array.isArray(allowedWriteGlobs)) {
+            overrides.allowed_write_globs = allowedWriteGlobs;
+        }
+
+        const blockedGlobs = this.getExplicitSetting<string[]>(config, 'policy.blockedGlobs');
+        if (Array.isArray(blockedGlobs)) {
+            overrides.blocked_globs = blockedGlobs;
+        }
+
+        const networkEnabled = this.getExplicitSetting<boolean>(config, 'policy.networkEnabled');
+        if (networkEnabled !== undefined) {
+            overrides.network_enabled = networkEnabled;
+        }
+
+        const autoApproveSimple = this.getExplicitSetting<boolean>(config, 'policy.autoApproveSimpleChanges');
+        if (autoApproveSimple !== undefined) {
+            overrides.auto_approve_simple_changes = autoApproveSimple;
+        }
+
+        const autoApproveTests = this.getExplicitSetting<boolean>(config, 'policy.autoApproveTests');
+        if (autoApproveTests !== undefined) {
+            overrides.auto_approve_tests = autoApproveTests;
+        }
+
+        return overrides;
+    }
+
+    private async applyWorkspacePolicyOverrides(
+        serverUrl: string,
+        token: string | undefined
+    ): Promise<void> {
+        if (!this.workspaceId) {
+            return;
+        }
+
+        const config = vscode.workspace.getConfiguration('locoAgent');
+        const overrides = this.buildPolicyOverrides(config);
+        if (!Object.keys(overrides).length) {
+            return;
+        }
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json'
+        };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const response = await fetch(
+            `${serverUrl}/v1/workspaces/${this.workspaceId}/policy`,
+            {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify(overrides)
+            }
+        );
+
+        if (!response.ok) {
+            console.warn('Failed to update workspace policy:', response.statusText);
+        }
     }
 
     private getExplicitSetting<T>(config: vscode.WorkspaceConfiguration, key: string): T | undefined {

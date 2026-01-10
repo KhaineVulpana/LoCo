@@ -3,9 +3,10 @@ File system tools for the agent
 """
 
 import os
+import re
 import aiofiles
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple, Optional
 import structlog
 
 from app.tools.base import Tool
@@ -232,9 +233,111 @@ class ApplyPatchTool(Tool):
 
     async def execute(self, file_path: str, patch: str) -> Dict[str, Any]:
         """Apply patch to file"""
-        # This is a simplified implementation
-        # In production, use a proper diff/patch library
-        return {
-            "success": False,
-            "error": "Patch application not yet implemented. Use write_file instead."
-        }
+        try:
+            full_path = os.path.join(self.workspace_path, file_path)
+
+            # Security check
+            if not os.path.abspath(full_path).startswith(os.path.abspath(self.workspace_path)):
+                return {
+                    "success": False,
+                    "error": "Access denied: path outside workspace"
+                }
+
+            if not os.path.exists(full_path):
+                return {
+                    "success": False,
+                    "error": f"File not found: {file_path}"
+                }
+
+            async with aiofiles.open(full_path, 'r', encoding='utf-8') as f:
+                content = await f.read()
+
+            patched = self._apply_unified_diff(content, patch)
+            if patched is None:
+                return {
+                    "success": False,
+                    "error": "Failed to apply patch: hunk mismatch"
+                }
+
+            async with aiofiles.open(full_path, 'w', encoding='utf-8') as f:
+                await f.write(patched)
+
+            return {
+                "success": True,
+                "file_path": file_path,
+                "bytes_written": len(patched)
+            }
+
+        except Exception as e:
+            logger.error("apply_patch_error", file_path=file_path, error=str(e))
+            return {
+                "success": False,
+                "error": f"Failed to apply patch: {str(e)}"
+            }
+
+    def _parse_hunks(self, diff_text: str) -> List[Tuple[int, int, List[str]]]:
+        """Parse unified diff hunks."""
+        hunks = []
+        lines = diff_text.splitlines()
+        i = 0
+        hunk_header = re.compile(r"^@@ -(\\d+)(?:,(\\d+))? \\+(\\d+)(?:,(\\d+))? @@")
+
+        while i < len(lines):
+            line = lines[i]
+            match = hunk_header.match(line)
+            if not match:
+                i += 1
+                continue
+
+            old_start = int(match.group(1))
+            old_len = int(match.group(2) or "1")
+            i += 1
+            hunk_lines = []
+            while i < len(lines) and not lines[i].startswith('@@'):
+                hunk_lines.append(lines[i])
+                i += 1
+            hunks.append((old_start, old_len, hunk_lines))
+
+        return hunks
+
+    def _apply_unified_diff(self, content: str, diff_text: str) -> Optional[str]:
+        """Apply unified diff to content and return patched content."""
+        original_lines = content.splitlines()
+        output_lines = []
+        cursor = 0
+
+        hunks = self._parse_hunks(diff_text)
+        if not hunks:
+            return None
+
+        for old_start, _old_len, hunk_lines in hunks:
+            # Convert 1-based diff line numbers to 0-based index
+            target_index = max(old_start - 1, 0)
+            output_lines.extend(original_lines[cursor:target_index])
+            cursor = target_index
+
+            for hunk_line in hunk_lines:
+                if hunk_line.startswith('@@'):
+                    continue
+                if hunk_line.startswith('---') or hunk_line.startswith('+++') or hunk_line.startswith('diff '):
+                    continue
+                if hunk_line.startswith('\\'):
+                    continue  # "\ No newline at end of file"
+
+                prefix = hunk_line[:1]
+                text = hunk_line[1:]
+
+                if prefix == ' ':
+                    if cursor >= len(original_lines) or original_lines[cursor] != text:
+                        return None
+                    output_lines.append(text)
+                    cursor += 1
+                elif prefix == '-':
+                    if cursor >= len(original_lines) or original_lines[cursor] != text:
+                        return None
+                    cursor += 1
+                elif prefix == '+':
+                    output_lines.append(text)
+
+        output_lines.extend(original_lines[cursor:])
+        return "\n".join(output_lines)

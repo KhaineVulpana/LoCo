@@ -132,14 +132,17 @@ fi
 
 echo "[Final] Preparing distribution..."
 
-# Create releases directory
-mkdir -p releases
+# Create out directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+OUTPUT_DIR="$ROOT_DIR/out"
+mkdir -p "$OUTPUT_DIR"
 
 # Get version from build.gradle.kts
 VERSION=$(grep -m 1 "versionName" app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
 
 if [ "$BUILD_TYPE" == "release" ]; then
-    OUTPUT_FILE="releases/LoCoAgent-${VERSION}-release.apk"
+    OUTPUT_FILE="${OUTPUT_DIR}/LoCoAgent-${VERSION}-release.apk"
     
     # Sign the APK
     echo "Signing APK..."
@@ -151,7 +154,7 @@ if [ "$BUILD_TYPE" == "release" ]; then
     jarsigner -verify -verbose -certs "$OUTPUT_FILE" || echo "Warning: Signature verification had issues"
     
 else
-    OUTPUT_FILE="releases/LoCoAgent-${VERSION}-debug.apk"
+    OUTPUT_FILE="${OUTPUT_DIR}/LoCoAgent-${VERSION}-debug.apk"
     cp "$APK_PATH" "$OUTPUT_FILE"
 fi
 

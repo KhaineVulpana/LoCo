@@ -55,12 +55,12 @@ VERSION=$(node -p "require('./package.json').version")
 echo "Extension version: $VERSION"
 
 # Package the extension
-mkdir -p ../../releases
-vsce package --out ../../releases/
+mkdir -p ../../out
+vsce package --out ../../out/
 
 cd ../..
 
-VSIX_FILE="releases/loco-agent-${VERSION}.vsix"
+VSIX_FILE="out/loco-agent-${VERSION}.vsix"
 
 if [ ! -f "$VSIX_FILE" ]; then
     echo "ERROR: Packaging failed! .vsix file not created."

@@ -53,7 +53,7 @@ fun ChatPanel(
     ) {
         // Top Bar
         TopAppBar(
-            title = { 
+            title = {
                 Column {
                     Text(
                         text = currentSession?.title ?: "LoCo Agent",
@@ -88,24 +88,27 @@ fun ChatPanel(
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                containerColor = MaterialTheme.colorScheme.surface
             )
         )
 
         // Connection Status
         if (!isConnected && currentSession != null) {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.errorContainer
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(8.dp),
+                    modifier = Modifier.padding(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         Icons.Default.Warning,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -124,8 +127,8 @@ fun ChatPanel(
                 .weight(1f)
                 .fillMaxWidth(),
             state = listState,
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (messages.isEmpty() && currentSession != null) {
                 item {
@@ -160,14 +163,18 @@ fun ChatPanel(
 
         // Input Area
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
             shadowElevation = 8.dp,
-            tonalElevation = 2.dp
+            tonalElevation = 2.dp,
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surface
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(14.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
                 OutlinedTextField(
@@ -177,7 +184,13 @@ fun ChatPanel(
                     placeholder = { Text("Type a message...") },
                     maxLines = 5,
                     enabled = isConnected,
-                    shape = RoundedCornerShape(24.dp)
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
                 )
                 
                 Spacer(modifier = Modifier.width(8.dp))
@@ -190,7 +203,7 @@ fun ChatPanel(
                         }
                     },
                     enabled = isConnected && messageText.isNotBlank(),
-                    modifier = Modifier.size(56.dp)
+                    modifier = Modifier.size(52.dp)
                 ) {
                     Icon(Icons.Default.Send, "Send message")
                 }
@@ -209,15 +222,15 @@ fun MessageBubble(message: ChatMessage) {
     ) {
         Surface(
             shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (isUser) 16.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 16.dp
+                topStart = 18.dp,
+                topEnd = 18.dp,
+                bottomStart = if (isUser) 18.dp else 6.dp,
+                bottomEnd = if (isUser) 6.dp else 18.dp
             ),
-            color = if (isUser) 
-                MaterialTheme.colorScheme.primaryContainer 
-            else 
-                MaterialTheme.colorScheme.secondaryContainer,
+            color = if (isUser)
+                MaterialTheme.colorScheme.primaryContainer
+            else
+                MaterialTheme.colorScheme.surfaceVariant,
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
             Column(
@@ -226,20 +239,20 @@ fun MessageBubble(message: ChatMessage) {
                 Text(
                     text = if (isUser) "You" else "Assistant",
                     style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isUser) 
-                        MaterialTheme.colorScheme.onPrimaryContainer 
-                    else 
-                        MaterialTheme.colorScheme.onSecondaryContainer
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isUser)
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = message.content,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (isUser) 
-                        MaterialTheme.colorScheme.onPrimaryContainer 
-                    else 
-                        MaterialTheme.colorScheme.onSecondaryContainer
+                    color = if (isUser)
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

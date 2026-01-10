@@ -126,14 +126,16 @@ if not exist "%APK_PATH%" (
 
 echo [Final] Preparing distribution...
 
-REM Create releases directory
-if not exist "releases" mkdir releases
+REM Create out directory
+for %%I in ("%CD%\..\..") do set ROOT_DIR=%%~fI
+set OUTPUT_DIR=%ROOT_DIR%\out
+if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
 
 REM Get version from build.gradle.kts
 for /f "tokens=2 delims==\" " %%i in ('findstr /r "versionName" app\build.gradle.kts') do set VERSION=%%i
 
 if "%BUILD_TYPE%"=="release" (
-    set OUTPUT_FILE=releases\LoCoAgent-%VERSION%-release.apk
+    set OUTPUT_FILE=%OUTPUT_DIR%\LoCoAgent-%VERSION%-release.apk
     
     REM Copy the signed APK
     copy "%APK_PATH%" "%OUTPUT_FILE%"
@@ -143,7 +145,7 @@ if "%BUILD_TYPE%"=="release" (
     jarsigner -verify -verbose -certs "%OUTPUT_FILE%" || echo Warning: Signature verification had issues
     
 ) else (
-    set OUTPUT_FILE=releases\LoCoAgent-%VERSION%-debug.apk
+    set OUTPUT_FILE=%OUTPUT_DIR%\LoCoAgent-%VERSION%-debug.apk
     copy "%APK_PATH%" "%OUTPUT_FILE%"
 )
 

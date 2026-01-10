@@ -14,19 +14,34 @@
   </head>
   <body>
     <div class="app">
-      <aside class="chat-panel">
-        <header class="panel-header">
+      <aside class="session-panel">
+        <div class="session-header">
           <div>
             <p class="eyebrow">LoCo</p>
-            <h1>3D-Gen Studio</h1>
+            <h1>3D-Gen</h1>
           </div>
+          <button id="new-session-btn" class="ghost-btn">New chat</button>
+        </div>
+        <div class="session-meta">
           <span class="frontend-pill">frontend: 3d-gen</span>
+          <span id="status-pill" class="status-pill offline">offline</span>
+        </div>
+        <div class="session-list" id="session-list"></div>
+      </aside>
+
+      <main class="chat-panel">
+        <header class="panel-header">
+          <div>
+            <p class="eyebrow">Active Session</p>
+            <h2 id="active-session-title">New chat</h2>
+          </div>
+          <span class="session-hint">Chat + 3D preview</span>
         </header>
 
         <section class="connection-card">
           <div class="connection-header">
-            <h2>Connection</h2>
-            <span id="status-pill" class="status-pill offline">offline</span>
+            <h3>Connection</h3>
+            <span id="status-pill-dup" class="status-pill offline">offline</span>
           </div>
           <div class="connection-grid">
             <label>
@@ -55,7 +70,7 @@
           ></textarea>
           <button type="submit" class="primary-btn">Send</button>
         </form>
-      </aside>
+      </main>
 
       <section class="viewer-panel">
         <header class="viewer-header">

@@ -63,6 +63,11 @@
         "command": "locoAgent.viewDiff",
         "title": "View Diff",
         "category": "LoCo Agent"
+      },
+      {
+        "command": "locoAgent.undoPatch",
+        "title": "Undo Patch",
+        "category": "LoCo Agent"
       }
     ],
     "configuration": {
@@ -78,10 +83,30 @@
           "default": true,
           "description": "Automatically gather context (diagnostics, terminal output, git status)"
         },
+        "locoAgent.includeWorkspaceRag": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include workspace-specific RAG results in agent context"
+        },
         "locoAgent.authEnabled": {
           "type": "boolean",
           "default": false,
           "description": "Enable bearer token authentication when connecting to the server"
+        },
+        "locoAgent.autoIndexWorkspace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically index the current workspace on connect"
+        },
+        "locoAgent.autoWatchWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically watch the workspace for changes after indexing"
+        },
+        "locoAgent.usePollingWatcher": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use polling-based file watching (slower but more reliable on some filesystems)"
         },
         "locoAgent.modelProvider": {
           "type": "string",
@@ -107,6 +132,82 @@
           "type": "boolean",
           "default": true,
           "description": "Show inline diff previews in editor"
+        },
+        "locoAgent.policy.commandApproval": {
+          "type": "string",
+          "enum": [
+            "always",
+            "never",
+            "prompt"
+          ],
+          "default": "prompt",
+          "description": "Command approval policy for the workspace"
+        },
+        "locoAgent.policy.allowedCommands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Allowed command prefixes for auto-approval"
+        },
+        "locoAgent.policy.blockedCommands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "rm -rf",
+            "sudo",
+            "curl"
+          ],
+          "description": "Blocked command patterns"
+        },
+        "locoAgent.policy.allowedReadGlobs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/*"
+          ],
+          "description": "Allowed read globs for workspace files"
+        },
+        "locoAgent.policy.allowedWriteGlobs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/*"
+          ],
+          "description": "Allowed write globs for workspace files"
+        },
+        "locoAgent.policy.blockedGlobs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            ".git/**",
+            "node_modules/**"
+          ],
+          "description": "Blocked globs for workspace files"
+        },
+        "locoAgent.policy.networkEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow network-capable commands"
+        },
+        "locoAgent.policy.autoApproveSimpleChanges": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve simple changes (< 10 lines)"
+        },
+        "locoAgent.policy.autoApproveTests": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve test commands"
         }
       }
     },
@@ -142,6 +243,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "@types/diff": "^5.2.0",
     "@types/vscode": "^1.85.0",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
@@ -150,6 +252,7 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
+    "diff": "^5.2.0",
     "marked": "^11.0.0",
     "ws": "^8.16.0"
   }

@@ -78,8 +78,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Create releases directory
-mkdir -p releases
+# Create out directory
+mkdir -p out
 
 # Build Server
 if [ "$BUILD_SERVER" = true ]; then
@@ -141,7 +141,7 @@ echo "========================================"
 echo "Build Complete!"
 echo "========================================"
 echo
-echo "Distribution files created in releases/:"
+echo "Distribution files created in out/:"
 echo
 
 if [ "$BUILD_SERVER" = true ]; then
@@ -153,14 +153,14 @@ if [ "$BUILD_SERVER" = true ]; then
 fi
 
 if [ "$BUILD_EXTENSION" = true ]; then
-    VSIX_FILE=$(ls releases/loco-agent-*.vsix 2>/dev/null | head -1)
+    VSIX_FILE=$(ls out/loco-agent-*.vsix 2>/dev/null | head -1)
     if [ -n "$VSIX_FILE" ]; then
         echo "  ✓ $(basename $VSIX_FILE)"
     fi
 fi
 
 if [ "$BUILD_ANDROID" = true ]; then
-    APK_FILES=$(ls releases/LoCoAgent-*.apk 2>/dev/null)
+    APK_FILES=$(ls out/LoCoAgent-*.apk 2>/dev/null)
     if [ -n "$APK_FILES" ]; then
         for apk in $APK_FILES; do
             echo "  ✓ $(basename $apk)"

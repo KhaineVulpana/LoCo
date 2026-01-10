@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.loco.agent.data.model.FileNode
@@ -47,7 +48,7 @@ fun WorkspacePanel(
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                containerColor = MaterialTheme.colorScheme.surface
             )
         )
 
@@ -57,8 +58,9 @@ fun WorkspacePanel(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
-                shape = MaterialTheme.shapes.medium,
-                tonalElevation = 2.dp
+                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 1.dp,
+                color = MaterialTheme.colorScheme.surfaceVariant
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp)
@@ -89,7 +91,7 @@ fun WorkspacePanel(
                 text = "Files",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.SemiBold
             )
 
             LazyColumn(
@@ -140,11 +142,11 @@ fun WorkspaceItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        color = if (isSelected) 
-            MaterialTheme.colorScheme.primaryContainer 
-        else 
+        color = if (isSelected)
+            MaterialTheme.colorScheme.primaryContainer
+        else
             MaterialTheme.colorScheme.surface,
-        shape = MaterialTheme.shapes.small
+        shape = RoundedCornerShape(12.dp)
     ) {
         Row(
             modifier = Modifier

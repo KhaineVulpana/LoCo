@@ -8,7 +8,7 @@ from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.database import get_db
 from app.core.config import settings
@@ -66,7 +66,7 @@ async def create_session(
         )
     """)
 
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     await db.execute(query, {
         "id": session_id,
@@ -181,7 +181,7 @@ async def delete_session(
 
     await db.execute(query, {
         "session_id": session_id,
-        "deleted_at": datetime.utcnow().isoformat()
+        "deleted_at": datetime.now(timezone.utc).isoformat()
     })
 
     await db.commit()

@@ -31,6 +31,7 @@ structlog==24.1.0
 psutil==5.9.7
 pathspec==0.11.2  # For .gitignore parsing
 chardet==5.2.0  # For file encoding detection
+watchdog>=3.0.0  # File watcher for incremental indexing
 
 # Testing
 pytest==7.4.4

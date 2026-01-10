@@ -232,7 +232,7 @@ class Playbook:
         playbook.sections = data.get("sections", playbook.sections)
         return playbook
 
-    def deduplicate(self, threshold: float = 0.85):
+    def deduplicate(self, threshold: float = 0.85) -> Tuple[List[str], List[str]]:
         """
         Remove duplicate bullets using semantic similarity
 
@@ -243,6 +243,7 @@ class Playbook:
         # For now, simple exact match deduplication
         seen_content = {}
         to_remove = []
+        updated_ids = []
 
         for bullet_id, bullet in self.bullets.items():
             content_normalized = bullet.content.lower().strip()
@@ -252,6 +253,8 @@ class Playbook:
                 existing_id = seen_content[content_normalized]
                 self.bullets[existing_id].helpful_count += bullet.helpful_count
                 self.bullets[existing_id].harmful_count += bullet.harmful_count
+                if existing_id not in updated_ids:
+                    updated_ids.append(existing_id)
                 to_remove.append(bullet_id)
             else:
                 seen_content[content_normalized] = bullet_id
@@ -261,8 +264,9 @@ class Playbook:
 
         if to_remove:
             logger.info("deduplication_complete", removed_count=len(to_remove))
+        return to_remove, updated_ids
 
-    def prune_harmful(self, threshold: int = 3):
+    def prune_harmful(self, threshold: int = 3) -> List[str]:
         """Remove bullets that have been marked harmful too many times"""
         to_remove = []
 
@@ -275,6 +279,7 @@ class Playbook:
 
         if to_remove:
             logger.info("harmful_bullets_pruned", count=len(to_remove))
+        return to_remove
 
     def save_to_vector_db(
         self,
@@ -630,7 +635,7 @@ class Playbook:
                     harmful_count=self.bullets[bullet_id].harmful_count)
         return True
 
-    def apply_bullet_feedback(self, bullet_feedback: Any) -> None:
+    def apply_bullet_feedback(self, bullet_feedback: Any) -> List[str]:
         """
         Apply feedback tags to bullets based on trajectory
 
@@ -638,7 +643,7 @@ class Playbook:
             bullet_feedback: Dict {bullet_id: tag} or List[{bullet_id, tag}]
         """
         if not bullet_feedback:
-            return
+            return []
 
         if isinstance(bullet_feedback, list):
             feedback_dict = {
@@ -650,13 +655,17 @@ class Playbook:
             feedback_dict = bullet_feedback
         else:
             logger.warning("bullet_feedback_invalid_type", type=str(type(bullet_feedback)))
-            return
+            return []
 
+        updated_ids = []
         for bullet_id, tag in feedback_dict.items():
             if tag == "helpful":
-                self.mark_bullet_helpful(bullet_id)
+                if self.mark_bullet_helpful(bullet_id):
+                    updated_ids.append(bullet_id)
             elif tag == "harmful":
-                self.mark_bullet_harmful(bullet_id)
+                if self.mark_bullet_harmful(bullet_id):
+                    updated_ids.append(bullet_id)
 
         logger.info("bullet_feedback_applied",
-                   total_bullets=len(feedback_dict))
+                   total_bullets=len(updated_ids))
+        return updated_ids

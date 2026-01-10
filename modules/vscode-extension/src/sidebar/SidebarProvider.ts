@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as marked from 'marked';
+import * as path from 'path';
 import { ServerClient } from '../api/ServerClient';
 import { ContextGatherer } from '../context/ContextGatherer';
 
@@ -49,6 +50,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 case 'viewDiff':
                     vscode.commands.executeCommand('locoAgent.viewDiff', data.patchId);
                     break;
+                case 'undoPatch':
+                    vscode.commands.executeCommand('locoAgent.undoPatch', data.patchId);
+                    break;
+                case 'openMentionPicker':
+                    await this.openMentionPicker();
+                    break;
             }
         });
     }
@@ -57,14 +64,65 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         // Add user message to UI
         this.addMessage('user', message);
 
+        const parsed = this.parseSlashCommand(message);
+
         // Gather context
-        const context = await this.contextGatherer.gatherContext();
+        const context = await this.contextGatherer.gatherContext(message);
+        if (parsed.command) {
+            context.command = parsed.command;
+        }
 
         // Send to server
         this.serverClient.send({
             type: 'client.user_message',
-            message: message,
+            message: parsed.message || message,
             context: context
+        });
+    }
+
+    private parseSlashCommand(message: string): { command?: string; message: string } {
+        const match = message.match(/^\/([a-z]+)\s*(.*)$/is);
+        if (!match) {
+            return { message };
+        }
+
+        const command = match[1].toLowerCase();
+        const rest = match[2]?.trim() || '';
+        return { command, message: rest };
+    }
+
+    private async openMentionPicker(): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return;
+        }
+
+        const files = await vscode.workspace.findFiles(
+            '**/*',
+            '**/{.git,node_modules,dist,build,out,.venv,venv}/**',
+            200
+        );
+
+        const picks = files.map(file => {
+            const relative = path
+                .relative(workspaceFolder.uri.fsPath, file.fsPath)
+                .replace(/\\/g, '/');
+            return {
+                label: relative,
+                description: file.fsPath
+            };
+        });
+
+        const selection = await vscode.window.showQuickPick(picks, {
+            placeHolder: 'Select a file to mention'
+        });
+        if (!selection || !this.view) {
+            return;
+        }
+
+        this.view.webview.postMessage({
+            type: 'insertMention',
+            text: `@${selection.label} `
         });
     }
 
@@ -579,71 +637,75 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     height: 100%;
                     overscroll-behavior: none;
                     position: relative;
-                    --app-brand-orange: #d97757;
-                    --app-brand-clay-button-orange: #c6613f;
-                    --app-brand-ivory: #faf9f5;
-                    --app-brand-slate: #141413;
+                    color-scheme: dark;
+                    --app-brand: #f3a15e;
+                    --app-brand-strong: #e0894b;
+                    --app-brand-soft: rgba(243, 161, 94, 0.18);
                     --app-spacing-small: 4px;
                     --app-spacing-medium: 8px;
                     --app-spacing-large: 12px;
                     --app-spacing-xlarge: 16px;
-                    --corner-radius-small: 4px;
-                    --corner-radius-medium: 6px;
-                    --corner-radius-large: 8px;
+                    --corner-radius-small: 6px;
+                    --corner-radius-medium: 10px;
+                    --corner-radius-large: 14px;
                     --app-monospace-font-family: var(--vscode-editor-font-family, monospace);
                     --app-monospace-font-size: var(--vscode-editor-font-size, 12px);
                     --app-monospace-font-size-small: calc(var(--vscode-editor-font-size, 12px) - 2px);
                     --app-text-font-family: var(--vscode-chat-font-family, var(--vscode-font-family, sans-serif));
                     --app-text-font-size: var(--vscode-chat-font-size, var(--vscode-font-size, 13px));
-                    --app-primary-foreground: var(--vscode-foreground);
-                    --app-primary-background: var(--vscode-sideBar-background);
-                    --app-primary-border-color: var(--vscode-sideBarActivityBarTop-border);
-                    --app-secondary-foreground: var(--vscode-descriptionForeground);
-                    --app-input-foreground: var(--vscode-input-foreground);
-                    --app-input-background: var(--vscode-input-background);
-                    --app-input-border: var(--vscode-inlineChatInput-border);
-                    --app-input-active-border: var(--vscode-inputOption-activeBorder);
-                    --app-input-placeholder-foreground: var(--vscode-input-placeholderForeground);
-                    --app-input-secondary-foreground: var(--vscode-input-foreground);
-                    --app-input-secondary-background: var(--vscode-menu-background);
-                    --app-tool-background: var(--vscode-editor-background);
+                    --app-primary-foreground: #f5f6f8;
+                    --app-primary-background: #0f1115;
+                    --app-primary-border-color: #1f2532;
+                    --app-secondary-foreground: #9aa3b2;
+                    --app-input-foreground: #f5f6f8;
+                    --app-input-background: #151a24;
+                    --app-input-border: #242b3a;
+                    --app-input-active-border: #f3a15e;
+                    --app-input-placeholder-foreground: #697388;
+                    --app-input-secondary-foreground: #cbd0d8;
+                    --app-input-secondary-background: #121621;
+                    --app-tool-background: #141922;
                     --app-list-padding: 0px;
-                    --app-list-item-padding: 4px 8px;
+                    --app-list-item-padding: 6px 10px;
                     --app-list-border-color: transparent;
-                    --app-list-border-radius: 4px;
-                    --app-list-hover-background: var(--vscode-list-hoverBackground);
-                    --app-list-active-background: var(--vscode-list-activeSelectionBackground);
-                    --app-list-active-foreground: var(--vscode-list-activeSelectionForeground);
-                    --app-list-gap: 2px;
-                    --app-menu-background: var(--vscode-menu-background);
-                    --app-menu-border: var(--vscode-menu-border);
-                    --app-menu-foreground: var(--vscode-menu-foreground);
-                    --app-menu-selection-background: var(--vscode-menu-selectionBackground);
-                    --app-menu-selection-foreground: var(--vscode-menu-selectionForeground);
-                    --app-warning-foreground: var(--vscode-menu-foreground);
-                    --app-warning-background: var(--vscode-input-background);
-                    --app-badge-foreground: var(--vscode-badge-foreground);
-                    --app-badge-background: var(--vscode-badge-background);
-                    --app-header-background: var(--vscode-sideBar-background);
-                    --app-splitter-background: var(--vscode-inlineChatInput-border);
-                    --app-splitter-hover-background: var(--vscode-sash-hoverBorder);
-                    --app-progressbar-background: var(--vscode-progressBar-background);
-                    --app-progressbar-border: var(--vscode-widget-border);
-                    --app-widget-border: var(--vscode-editorWidget-border);
-                    --app-editor-highlight-background: var(--vscode-editor-lineHighlightBackground);
-                    --app-ghost-button-hover-background: var(--vscode-toolbar-hoverBackground);
-                    --app-button-foreground: var(--vscode-button-foreground);
-                    --app-button-background: var(--vscode-button-background);
-                    --app-button-hover-background: var(--vscode-button-hoverBackground);
-                    --app-transparent-inner-border: rgba(255, 255, 255, 0.1);
-                    --app-spinner-foreground: var(--app-brand-orange);
-                    --app-error-foreground: var(--vscode-errorForeground);
-                    --app-modal-background: rgba(0, 0, 0, 0.75);
+                    --app-list-border-radius: 8px;
+                    --app-list-hover-background: rgba(255, 255, 255, 0.06);
+                    --app-list-active-background: rgba(243, 161, 94, 0.16);
+                    --app-list-active-foreground: #f5f6f8;
+                    --app-list-gap: 4px;
+                    --app-menu-background: #121621;
+                    --app-menu-border: #252c3a;
+                    --app-menu-foreground: #f5f6f8;
+                    --app-menu-selection-background: rgba(243, 161, 94, 0.2);
+                    --app-menu-selection-foreground: #f5f6f8;
+                    --app-warning-foreground: #f5f6f8;
+                    --app-warning-background: #1a1f2c;
+                    --app-badge-foreground: #0f1115;
+                    --app-badge-background: #f3a15e;
+                    --app-header-background: #0f1115;
+                    --app-splitter-background: #1f2532;
+                    --app-splitter-hover-background: #2b3342;
+                    --app-progressbar-background: #f3a15e;
+                    --app-progressbar-border: #2b3342;
+                    --app-widget-border: #1f2532;
+                    --app-editor-highlight-background: rgba(255, 255, 255, 0.04);
+                    --app-ghost-button-hover-background: rgba(255, 255, 255, 0.06);
+                    --app-button-foreground: #1a120c;
+                    --app-button-background: #f3a15e;
+                    --app-button-hover-background: #ffb675;
+                    --app-transparent-inner-border: rgba(255, 255, 255, 0.08);
+                    --app-spinner-foreground: #f3a15e;
+                    --app-error-foreground: #ff7a7a;
+                    --app-modal-background: rgba(15, 17, 21, 0.75);
+                    --app-message-user-bg: rgba(243, 161, 94, 0.18);
+                    --app-message-user-border: rgba(243, 161, 94, 0.35);
+                    --app-message-assistant-bg: #151a24;
+                    --app-message-assistant-border: #212838;
                 }
 
                 .vscode-light {
-                    --app-transparent-inner-border: rgba(0, 0, 0, 0.07);
-                    --app-spinner-foreground: var(--app-brand-clay-button-orange);
+                    --app-transparent-inner-border: rgba(255, 255, 255, 0.12);
+                    --app-spinner-foreground: var(--app-brand-strong);
                 }
 
                 body {
@@ -672,8 +734,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 #header {
                     display: flex;
                     border-bottom: 1px solid var(--app-primary-border-color);
-                    padding: 6px 10px;
-                    gap: 4px;
+                    padding: 10px 12px;
+                    gap: 6px;
                     background-color: var(--app-header-background);
                     justify-content: flex-start;
                     user-select: none;
@@ -683,10 +745,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     display: flex;
                     align-items: center;
                     gap: 6px;
-                    padding: 2px 8px;
+                    padding: 4px 10px;
                     background: transparent;
                     border: none;
-                    border-radius: 4px;
+                    border-radius: 8px;
                     cursor: pointer;
                     outline: none;
                     min-width: 0;
@@ -737,10 +799,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    width: 24px;
-                    height: 24px;
-                    border-radius: 4px;
-                    border: none;
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 8px;
+                    border: 1px solid transparent;
                     background: transparent;
                     color: var(--app-primary-foreground);
                     cursor: pointer;
@@ -764,11 +826,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     flex: 1;
                     overflow-y: auto;
                     overflow-x: hidden;
-                    padding: 20px 20px 140px;
+                    padding: 24px 20px 140px;
                     display: flex;
                     flex-direction: column;
                     gap: 0;
-                    background-color: var(--app-primary-background);
+                    background: linear-gradient(180deg, rgba(15, 17, 21, 0.98) 0%, rgba(15, 17, 21, 1) 100%);
                     position: relative;
                     min-width: 0;
                 }
@@ -782,8 +844,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     bottom: 0;
                     left: 0;
                     right: 0;
-                    height: 150px;
-                    background: linear-gradient(to bottom, transparent 0%, var(--app-primary-background) 100%);
+                    height: 160px;
+                    background: linear-gradient(to bottom, rgba(15, 17, 21, 0) 0%, var(--app-primary-background) 100%);
                     pointer-events: none;
                     z-index: 2;
                 }
@@ -793,9 +855,27 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     display: flex;
                     gap: 0;
                     align-items: flex-start;
-                    padding: 8px 0;
+                    padding: 12px 0 16px;
                     flex-direction: column;
                     position: relative;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+                }
+
+                .message.user {
+                    align-items: flex-end;
+                }
+
+                .message.assistant {
+                    align-items: flex-start;
+                }
+
+                .message.user .message-content {
+                    align-self: flex-end;
+                    max-width: 92%;
+                }
+
+                .message.assistant .message-content {
+                    max-width: 92%;
                 }
 
                 .message-content {
@@ -809,11 +889,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     border: 1px solid var(--app-input-border);
                     border-radius: var(--corner-radius-medium);
                     background-color: var(--app-input-background);
-                    padding: 4px 6px;
+                    padding: 8px 10px;
                     display: inline-block;
                     max-width: 100%;
                     overflow-x: hidden;
                     overflow-y: hidden;
+                    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+                }
+
+                .message.user .message-bubble {
+                    background-color: var(--app-message-user-bg);
+                    border-color: var(--app-message-user-border);
                 }
 
                 .message-content p {
@@ -928,7 +1014,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
                 .tool-card {
                     border: 0.5px solid var(--app-input-border);
-                    border-radius: 5px;
+                    border-radius: 10px;
                     background: var(--app-tool-background);
                     margin: 8px 0;
                     max-width: 100%;
@@ -1047,10 +1133,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 #composer {
                     display: flex;
                     flex-direction: column;
-                    padding: 8px;
+                    padding: 10px;
                     background-color: var(--app-input-secondary-background);
                     border: 1px solid var(--app-input-border);
                     border-radius: var(--corner-radius-large);
+                    box-shadow: 0 24px 40px rgba(0, 0, 0, 0.38);
                 }
 
                 #composer:focus-within {
@@ -1168,14 +1255,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 <body>
             <div id="root">
                 <div id="header">
-                    <button id="session-button" type="button" title="Past conversations">
+                    <button id="session-button" type="button" title="Sessions">
                         <span class="session-button-content">
-                            <span class="session-button-text">Past Conversations</span>
+                            <span class="session-button-text">Sessions</span>
                             <span class="session-button-icon">v</span>
                         </span>
                     </button>
                     <div class="header-spacer"></div>
-                    <button id="new-session-button" type="button" title="New session">+</button>
+                    <button id="new-session-button" type="button" title="New chat">+</button>
                 </div>
                 <div id="chat-container">
                     <div id="messages-container" tabindex="0">
@@ -1254,7 +1341,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
                 if (attachButton) {
                     attachButton.addEventListener('click', () => {
-                        messageInput.focus();
+                        vscode.postMessage({ type: 'openMentionPicker' });
                     });
                 }
 
@@ -1311,12 +1398,30 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                             showError(message.message);
                             updateSendButtonState();
                             break;
+                        case 'insertMention':
+                            insertMention(message.text);
+                            break;
                     }
                 });
 
+                function insertMention(text) {
+                    if (!text) {
+                        return;
+                    }
+                    const start = messageInput.selectionStart || 0;
+                    const end = messageInput.selectionEnd || 0;
+                    const before = messageInput.value.slice(0, start);
+                    const after = messageInput.value.slice(end);
+                    messageInput.value = before + text + after;
+                    const cursor = start + text.length;
+                    messageInput.setSelectionRange(cursor, cursor);
+                    messageInput.focus();
+                    messageInput.dispatchEvent(new Event('input'));
+                }
+
                 function addMessage(role, content) {
                     const messageDiv = document.createElement('div');
-                    messageDiv.className = 'message';
+                    messageDiv.className = 'message ' + role;
 
                     const contentDiv = document.createElement('div');
                     contentDiv.className = 'message-content';
@@ -1338,7 +1443,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 function appendDelta(delta) {
                     if (!currentAssistantMessage) {
                         const messageDiv = document.createElement('div');
-                        messageDiv.className = 'message';
+                        messageDiv.className = 'message assistant';
 
                         const contentDiv = document.createElement('div');
                         contentDiv.className = 'message-content';
@@ -1478,9 +1583,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     rejectButton.textContent = 'Reject';
                     rejectButton.addEventListener('click', () => rejectPatch(patch.id));
 
+                    const undoButton = document.createElement('button');
+                    undoButton.className = 'secondary';
+                    undoButton.textContent = 'Undo';
+                    undoButton.addEventListener('click', () => undoPatch(patch.id));
+
                     actionsDiv.appendChild(acceptButton);
                     actionsDiv.appendChild(viewButton);
                     actionsDiv.appendChild(rejectButton);
+                    actionsDiv.appendChild(undoButton);
 
                     patchCard.appendChild(headerDiv);
                     patchCard.appendChild(bodyPre);
@@ -1522,6 +1633,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
                 function viewDiff(patchId) {
                     vscode.postMessage({ type: 'viewDiff', patchId });
+                }
+
+                function undoPatch(patchId) {
+                    vscode.postMessage({ type: 'undoPatch', patchId });
                 }
 
                 // Focus input on load
