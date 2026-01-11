@@ -9,9 +9,11 @@ import structlog
 from typing import Optional
 import secrets
 import json
+from datetime import datetime, timezone
 
 from app.core.database import init_db, async_session_maker
 from app.core.config import settings
+from app.core.workspace_paths import resolve_workspace_path, paths_equal
 from app.core import runtime
 from app.core.qdrant_manager import QdrantManager
 from app.core.embedding_manager import EmbeddingManager
@@ -31,6 +33,53 @@ logger = structlog.get_logger()
 
 # Store active agents per session
 active_agents = {}
+
+
+async def _resolve_workspace_path_for_session(
+    db: AsyncSession,
+    workspace_id: str,
+    stored_path: str,
+    workspace_name: Optional[str]
+) -> str:
+    resolved_path, source = resolve_workspace_path(stored_path, workspace_name)
+    if source == "missing":
+        logger.warning(
+            "workspace_path_unresolved",
+            workspace_id=workspace_id,
+            path=stored_path
+        )
+        return resolved_path
+
+    if not paths_equal(stored_path, resolved_path):
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            await db.execute(text("""
+                UPDATE workspaces
+                SET path = :path,
+                    updated_at = :updated_at
+                WHERE id = :workspace_id
+            """), {
+                "workspace_id": workspace_id,
+                "path": resolved_path,
+                "updated_at": now
+            })
+            await db.commit()
+        except Exception as exc:
+            logger.warning(
+                "workspace_path_update_failed",
+                workspace_id=workspace_id,
+                path=resolved_path,
+                error=str(exc)
+            )
+        else:
+            logger.info(
+                "workspace_path_updated",
+                workspace_id=workspace_id,
+                path=resolved_path,
+                source=source
+            )
+
+    return resolved_path
 
 
 @asynccontextmanager
@@ -284,7 +333,7 @@ async def websocket_endpoint(
 
                         # Get workspace path
                         workspace_query = text("""
-                            SELECT path FROM workspaces WHERE id = :workspace_id
+                            SELECT path, name FROM workspaces WHERE id = :workspace_id
                         """)
                         workspace_result = await db.execute(workspace_query, {"workspace_id": workspace_id})
                         workspace_row = workspace_result.fetchone()
@@ -299,7 +348,12 @@ async def websocket_endpoint(
                             })
                             continue
 
-                        workspace_path = workspace_row[0]
+                        workspace_path = await _resolve_workspace_path_for_session(
+                            db=db,
+                            workspace_id=workspace_id,
+                            stored_path=workspace_row[0],
+                            workspace_name=workspace_row[1]
+                        )
 
                     # Determine frontend_id from context (default to vscode for now)
                     # TODO: Get frontend_id from client_info in handshake

@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     ACE_CONTEXT_TOKENS: int = 800
     TEST_LOOP_MAX_ATTEMPTS: int = 3
 
+    # Workspace path resolution (comma/semicolon-separated roots)
+    WORKSPACE_SEARCH_ROOTS: str = ""
+
     # Remote docs ingestion
     REMOTE_DOCS_ENABLED: bool = True
     REMOTE_DOCS_REFRESH_HOURS: int = 24
