@@ -41,3 +41,7 @@ desktop.ini
 2510.04618v1.pdf
 backend/data/remote-docs/content/
 backend/data/remote-docs/metadata.json
+
+
+#Ignore vscode AI rules
+.github\instructions\codacy.instructions.md

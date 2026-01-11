@@ -21,6 +21,7 @@ from app.core.vector_store import VectorStore
 from app.indexing.indexer import FileIndexer
 from app.indexing.file_watcher import WorkspaceFileWatcher, is_watchdog_available
 from app.core.runtime import get_embedding_manager, get_vector_store
+from app.core.workspace_paths import resolve_workspace_path, paths_equal
 import structlog
 
 logger = structlog.get_logger()
@@ -132,7 +133,7 @@ def _schedule_workspace_index(
     if auto_watch:
         def _start_watch(_):
             asyncio.create_task(
-                _start_workspace_watch(
+                _start_workspace_watch_safe(
                     workspace_id=workspace_id,
                     workspace_path=workspace_path,
                     frontend_id=frontend_id,
@@ -142,6 +143,71 @@ def _schedule_workspace_index(
                 )
             )
         task.add_done_callback(_start_watch)
+
+
+def _validate_workspace_path(workspace_id: str, workspace_path: str) -> None:
+    path = Path(workspace_path)
+    if not path.exists():
+        logger.warning(
+            "workspace_path_missing",
+            workspace_id=workspace_id,
+            path=workspace_path
+        )
+        raise FileNotFoundError(f"Workspace path not found: {workspace_path}")
+    if not path.is_dir():
+        logger.warning(
+            "workspace_path_not_directory",
+            workspace_id=workspace_id,
+            path=workspace_path
+        )
+        raise NotADirectoryError(f"Workspace path is not a directory: {workspace_path}")
+
+
+async def _resolve_workspace_path_in_db(
+    db: AsyncSession,
+    workspace_id: str,
+    stored_path: str,
+    workspace_name: Optional[str] = None
+) -> str:
+    resolved_path, source = resolve_workspace_path(stored_path, workspace_name)
+    if source == "missing":
+        logger.warning(
+            "workspace_path_unresolved",
+            workspace_id=workspace_id,
+            path=stored_path
+        )
+        return resolved_path
+
+    if not paths_equal(stored_path, resolved_path):
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            await db.execute(text("""
+                UPDATE workspaces
+                SET path = :path,
+                    updated_at = :updated_at
+                WHERE id = :workspace_id
+            """), {
+                "workspace_id": workspace_id,
+                "path": resolved_path,
+                "updated_at": now
+            })
+            await db.commit()
+        except Exception as exc:
+            logger.warning(
+                "workspace_path_update_failed",
+                workspace_id=workspace_id,
+                path=resolved_path,
+                error=str(exc)
+            )
+        else:
+            logger.info(
+                "workspace_path_updated",
+                workspace_id=workspace_id,
+                path=resolved_path,
+                source=source
+            )
+
+    return resolved_path
 
 
 async def _start_workspace_watch(
@@ -163,6 +229,8 @@ async def _start_workspace_watch(
         elif existing.is_running():
             return existing
 
+    _validate_workspace_path(workspace_id, workspace_path)
+
     watcher = WorkspaceFileWatcher(
         workspace_id=workspace_id,
         frontend_id=frontend_id,
@@ -173,8 +241,45 @@ async def _start_workspace_watch(
         use_polling=use_polling
     )
     workspace_watchers[workspace_id] = watcher
-    await watcher.start()
+    try:
+        await watcher.start()
+    except Exception:
+        workspace_watchers.pop(workspace_id, None)
+        raise
     return watcher
+
+
+async def _start_workspace_watch_safe(
+    workspace_id: str,
+    workspace_path: str,
+    frontend_id: str,
+    embedding_manager: EmbeddingManager,
+    vector_store: VectorStore,
+    use_polling: bool = False
+) -> None:
+    try:
+        await _start_workspace_watch(
+            workspace_id=workspace_id,
+            workspace_path=workspace_path,
+            frontend_id=frontend_id,
+            embedding_manager=embedding_manager,
+            vector_store=vector_store,
+            use_polling=use_polling
+        )
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        logger.warning(
+            "workspace_watch_start_failed",
+            workspace_id=workspace_id,
+            path=workspace_path,
+            error=str(exc)
+        )
+    except Exception as exc:
+        logger.exception(
+            "workspace_watch_start_failed",
+            workspace_id=workspace_id,
+            path=workspace_path,
+            error=str(exc)
+        )
 
 
 async def _stop_workspace_watch(workspace_id: str) -> bool:
@@ -248,13 +353,19 @@ async def register_workspace(
 
     if existing:
         logger.info("workspace_already_exists", path=workspace.path, id=existing[0])
+        resolved_path = await _resolve_workspace_path_in_db(
+            db=db,
+            workspace_id=existing[0],
+            stored_path=existing[1],
+            workspace_name=existing[2]
+        )
         if workspace.auto_index or workspace.auto_watch:
             try:
                 embedding_manager = get_embedding_manager()
                 vector_store = get_vector_store()
                 _schedule_workspace_index(
                     workspace_id=existing[0],
-                    workspace_path=existing[1],
+                    workspace_path=resolved_path,
                     frontend_id=workspace.frontend_id,
                     embedding_manager=embedding_manager,
                     vector_store=vector_store,
@@ -267,7 +378,7 @@ async def register_workspace(
                                error=str(e))
         return WorkspaceResponse(
             id=existing[0],
-            path=existing[1],
+            path=resolved_path,
             name=existing[2],
             created_at=existing[3],
             last_indexed_at=existing[4],
@@ -359,10 +470,17 @@ async def list_workspaces(db: AsyncSession = Depends(get_db)):
     result = await db.execute(query)
     rows = result.fetchall()
 
-    return [
-        WorkspaceResponse(
+    responses: List[WorkspaceResponse] = []
+    for row in rows:
+        resolved_path = await _resolve_workspace_path_in_db(
+            db=db,
+            workspace_id=row[0],
+            stored_path=row[1],
+            workspace_name=row[2]
+        )
+        responses.append(WorkspaceResponse(
             id=row[0],
-            path=row[1],
+            path=resolved_path,
             name=row[2],
             created_at=row[3],
             last_indexed_at=row[4],
@@ -371,9 +489,9 @@ async def list_workspaces(db: AsyncSession = Depends(get_db)):
             total_files=row[7] or 0,
             indexed_files=row[8] or 0,
             total_chunks=row[9] or 0
-        )
-        for row in rows
-    ]
+        ))
+
+    return responses
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
@@ -395,9 +513,16 @@ async def get_workspace(
     if not row:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
+    resolved_path = await _resolve_workspace_path_in_db(
+        db=db,
+        workspace_id=row[0],
+        stored_path=row[1],
+        workspace_name=row[2]
+    )
+
     return WorkspaceResponse(
         id=row[0],
-        path=row[1],
+        path=resolved_path,
         name=row[2],
         created_at=row[3],
         last_indexed_at=row[4],
@@ -524,7 +649,7 @@ async def index_workspace(
 ):
     """Index a workspace for RAG retrieval."""
     query = text("""
-        SELECT path FROM workspaces
+        SELECT path, name FROM workspaces
         WHERE id = :workspace_id AND deleted_at IS NULL
     """)
     result = await db.execute(query, {"workspace_id": workspace_id})
@@ -533,7 +658,12 @@ async def index_workspace(
     if not row:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    workspace_path = row[0]
+    workspace_path = await _resolve_workspace_path_in_db(
+        db=db,
+        workspace_id=workspace_id,
+        stored_path=row[0],
+        workspace_name=row[1]
+    )
 
     indexer = FileIndexer(
         workspace_id=workspace_id,
@@ -631,13 +761,18 @@ async def stream_index_progress(
     workspace_path = None
     async with async_session_maker() as session:
         result = await session.execute(text("""
-            SELECT path FROM workspaces
+            SELECT path, name FROM workspaces
             WHERE id = :workspace_id AND deleted_at IS NULL
         """), {"workspace_id": workspace_id})
         row = result.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Workspace not found")
-        workspace_path = row[0]
+        workspace_path = await _resolve_workspace_path_in_db(
+            db=session,
+            workspace_id=workspace_id,
+            stored_path=row[0],
+            workspace_name=row[1]
+        )
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -655,21 +790,38 @@ async def start_workspace_watch(
         raise HTTPException(status_code=503, detail="File watcher not available")
 
     result = await db.execute(text("""
-        SELECT path FROM workspaces
+        SELECT path, name FROM workspaces
         WHERE id = :workspace_id AND deleted_at IS NULL
     """), {"workspace_id": workspace_id})
     row = result.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    await _start_workspace_watch(
+    workspace_path = await _resolve_workspace_path_in_db(
+        db=db,
         workspace_id=workspace_id,
-        workspace_path=row[0],
-        frontend_id=request.frontend_id,
-        embedding_manager=embedding_manager,
-        vector_store=vector_store,
-        use_polling=request.use_polling
+        stored_path=row[0],
+        workspace_name=row[1]
     )
+    try:
+        await _start_workspace_watch(
+            workspace_id=workspace_id,
+            workspace_path=workspace_path,
+            frontend_id=request.frontend_id,
+            embedding_manager=embedding_manager,
+            vector_store=vector_store,
+            use_polling=request.use_polling
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Workspace path not found: {workspace_path}"
+        )
+    except NotADirectoryError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Workspace path is not a directory: {workspace_path}"
+        )
 
     return {"success": True, "running": True}
 
