@@ -128,4 +128,4 @@ echo Press Ctrl+C to stop
 echo.
 
 REM Temporarily disable --reload to see errors without restart loop
-uvicorn app.main:app --host 0.0.0.0 --port 3199 
+uvicorn app.main:app --host 0.0.0.0 --port 3199

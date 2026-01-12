@@ -42,7 +42,9 @@ qdrant_storage/
 2510.04618v1.pdf
 backend/data/remote-docs/content/
 backend/data/remote-docs/metadata.json
+out/loco-agent-0.1.0.vsix
 
 
 #Ignore vscode AI rules
 .github\instructions\codacy.instructions.md
+out/loco-agent-0.1.0.vsix

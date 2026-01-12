@@ -15,7 +15,7 @@ if not exist "modules\vscode-extension\package.json" (
 )
 
 REM Check for Node.js
-node --version >nul 2>&1
+call node --version >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Node.js is not installed
     echo Please install Node.js 18+ from https://nodejs.org/
@@ -24,7 +24,7 @@ if errorlevel 1 (
 )
 
 REM Check for npm
-npm --version >nul 2>&1
+call npm --version >nul 2>&1
 if errorlevel 1 (
     echo ERROR: npm is not installed
     pause
