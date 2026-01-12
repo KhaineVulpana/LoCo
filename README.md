@@ -1,5 +1,9 @@
 # LoCo Agent - Complete Project
 
+<p align="center">
+  <img src="LoCo-image.png" alt="LoCo icon" width="160" />
+</p>
+
 A **local-first, LAN-served coding agent** with VS Code extension, Android app, and comprehensive packaging scripts.
 
 ## 📦 Project Structure

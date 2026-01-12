@@ -2,6 +2,7 @@
   "name": "loco-agent",
   "displayName": "LoCo Agent",
   "description": "Local-first coding agent with agentic RAG and ACE",
+  "icon": "resources/loco-extension.png",
   "version": "0.1.0",
   "engines": {
     "vscode": "^1.85.0"
@@ -21,7 +22,10 @@
         {
           "id": "loco-agent",
           "title": "LoCo Agent",
-          "icon": "resources/icon.svg"
+          "icon": {
+            "light": "resources/loco-activity-light.png",
+            "dark": "resources/loco-activity-dark.png"
+          }
         }
       ]
     },
