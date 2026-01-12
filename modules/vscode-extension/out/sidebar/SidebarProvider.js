@@ -1400,6 +1400,12 @@ class SidebarProvider {
                 }
 
                 function addMessage(role, content) {
+                    if (role === 'assistant' && currentAssistantMessage) {
+                        currentAssistantMessage.innerHTML = content;
+                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                        return;
+                    }
+
                     const messageDiv = document.createElement('div');
                     messageDiv.className = 'message ' + role;
 
