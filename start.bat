@@ -16,6 +16,33 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Check if Ollama is running, start if not
+echo Checking Ollama...
+curl -f http://localhost:11434/api/tags >nul 2>&1
+if errorlevel 1 (
+    echo Ollama not running, starting Ollama...
+    where ollama >nul 2>&1
+    if errorlevel 1 (
+        echo Error: Ollama is not installed. Please install Ollama from https://ollama.ai
+        pause
+        exit /b 1
+    )
+    start "" ollama serve
+    echo Waiting for Ollama to start...
+    timeout /t 5 /nobreak >nul
+
+    :check_ollama
+    curl -f http://localhost:11434/api/tags >nul 2>&1
+    if errorlevel 1 (
+        echo Ollama not ready yet, waiting...
+        timeout /t 2 /nobreak >nul
+        goto check_ollama
+    )
+)
+
+echo Ollama is healthy
+echo.
+
 REM Start Qdrant
 echo Starting Qdrant vector database...
 docker compose up -d qdrant
@@ -100,4 +127,5 @@ echo.
 echo Press Ctrl+C to stop
 echo.
 
-uvicorn app.main:app --reload --host 0.0.0.0 --port 3199 
+REM Temporarily disable --reload to see errors without restart loop
+uvicorn app.main:app --host 0.0.0.0 --port 3199 

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   qdrant:
     image: qdrant/qdrant:v1.7.4
@@ -8,7 +6,7 @@ services:
       - "6333:6333"  # REST API
       - "6334:6334"  # gRPC
     volumes:
-      - ./qdrant_storage:/qdrant/storage
+      - qdrant_storage:/qdrant/storage
     environment:
       - QDRANT_SERVICE_API_KEY=${QDRANT_API_KEY:-}
     restart: unless-stopped

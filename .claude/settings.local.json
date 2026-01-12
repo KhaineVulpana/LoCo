@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell \"Get-Process | Where-Object {$_ProcessName -like ''*ollama*''}\")",
+      "Bash(powershell \"Get-Process ollama -ErrorAction SilentlyContinue\")",
+      "Bash(timeout /t 10 /nobreak)",
+      "Bash(powershell \"Start-Sleep -Seconds 10\")",
+      "Bash(curl:*)",
+      "Bash(powershell \"Get-Process | Where-Object {$_ProcessName -eq ''uvicorn'' -or $_ProcessName -eq ''python''} | Select-Object Id, ProcessName, StartTime | Format-Table\")",
+      "Bash(findstr:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(powershell \"Stop-Process -Id 24360 -Force\")",
+      "Bash(powershell:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run compile:*)"
+    ]
+  }
+}

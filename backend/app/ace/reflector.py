@@ -3,7 +3,7 @@ ACE Reflector - Analyzes trajectories and extracts insights
 """
 
 import json
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 import structlog
 
 from app.core.llm_client import LLMClient
@@ -21,7 +21,7 @@ class Reflector:
     - Missing heuristics or rules
     """
 
-    def __init__(self, llm_client: Optional[LLMClient] = None):
+    def __init__(self, llm_client: Optional[Union[LLMClient, "IsolatedLLMClient"]] = None):
         self.llm_client = llm_client or LLMClient()
         self.max_refinement_rounds = 5
 

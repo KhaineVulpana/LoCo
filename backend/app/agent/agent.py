@@ -12,6 +12,7 @@ import pathspec
 from sqlalchemy import text
 
 from app.core.llm_client import LLMClient
+from app.core.isolated_llm_client import IsolatedLLMClient
 from app.core.embedding_manager import EmbeddingManager
 from app.core.vector_store import VectorStore
 from app.core.model_manager import ModelManager
@@ -37,7 +38,7 @@ class Agent:
         model_manager: Optional[ModelManager] = None,
         embedding_manager: Optional[EmbeddingManager] = None,
         vector_store: Optional[VectorStore] = None,
-        enable_ace: bool = True
+        enable_ace: bool = True  # Re-enabled after fixing duplicate response issue with IsolatedLLMClient
     ):
         self.workspace_path = workspace_path
         self.frontend_id = frontend_id
@@ -604,8 +605,16 @@ class Agent:
                 # Add assistant response to history
                 assistant_message = {"role": "assistant"}
 
-                if current_content:
-                    assistant_message["content"] = current_content
+                # Clean XML from content if tool calls were parsed
+                display_content = current_content
+                if current_content and current_tool_calls:
+                    # Re-parse to get cleaned content without XML
+                    from app.core.llm_client import parse_xml_tool_calls
+                    cleaned_content, _ = parse_xml_tool_calls(current_content)
+                    display_content = cleaned_content
+
+                if display_content:
+                    assistant_message["content"] = display_content
                 else:
                     assistant_message["content"] = ""
 
@@ -1065,18 +1074,32 @@ class Agent:
         if not self.enable_ace:
             return
 
-        # Get current LLM client
-        llm_client = self._get_llm_client()
-        if not llm_client:
-            logger.warning("ace_learning_skipped", reason="No LLM client available")
+        # Get current model configuration
+        if not self.model_manager:
+            logger.warning("ace_learning_skipped", reason="No model manager available")
+            return
+
+        current_config = self.model_manager.get_current_config()
+        if not current_config:
+            logger.warning("ace_learning_skipped", reason="No model loaded")
             return
 
         logger.info("ace_learning_start", task=task[:100])
 
-        # Create Reflector and Curator with current LLM client
-        reflector = Reflector(llm_client)
+        # Create isolated LLM client for ACE operations
+        # This prevents concurrent streaming conflicts with the main agent
+        ace_client = IsolatedLLMClient(
+            provider=current_config.provider,
+            model_name=current_config.model_name,
+            base_url=current_config.url,
+            context_window=current_config.context_window,
+            temperature=current_config.temperature
+        )
+
+        # Create Reflector and Curator with isolated LLM client
+        reflector = Reflector(ace_client)
         curator = Curator(
-            llm_client,
+            ace_client,
             embedding_manager=self.embedding_manager,
             vector_store=self.vector_store,
             collection_name=self.ace_collection

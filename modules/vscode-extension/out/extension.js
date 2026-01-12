@@ -51,6 +51,11 @@ let diffManager;
 let indexStatusBar;
 async function activate(context) {
     console.log('LoCo Agent is activating...');
+    // Disconnect old client if it exists (prevent duplicate connections)
+    if (serverClient) {
+        console.log('Disconnecting old server client...');
+        serverClient.disconnect();
+    }
     // Initialize components
     serverClient = new ServerClient_1.ServerClient(context);
     contextGatherer = new ContextGatherer_1.ContextGatherer();
@@ -137,11 +142,15 @@ async function activate(context) {
     }
     // Connect to server
     try {
+        console.log('Attempting to connect to server...');
         await serverClient.connect();
+        console.log('Successfully connected to server');
         vscode.window.showInformationMessage('LoCo Agent: Connected to server');
     }
     catch (error) {
-        vscode.window.showErrorMessage(`LoCo Agent: Failed to connect to server. ${error}`);
+        console.error('Failed to connect to server:', error);
+        vscode.window.showErrorMessage(`LoCo Agent: Failed to connect to server. Will retry automatically. ${error}`);
+        // Note: ServerClient.attemptReconnect() will handle retries if WebSocket was created
     }
     console.log('LoCo Agent is now active');
 }

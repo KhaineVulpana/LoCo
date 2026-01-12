@@ -433,6 +433,14 @@ class Retriever:
         if not query:
             return []
 
+        stripped = query.strip()
+        if not stripped:
+            return []
+
+        if not use_regex and len(stripped) < 3:
+            # Avoid noisy matches for very short queries.
+            return []
+
         if self._rg_path and self.workspace_path:
             rg_results = await self._search_with_ripgrep(query, limit, use_regex)
             if rg_results:
@@ -721,7 +729,10 @@ class Retriever:
             ace_collection = f"loco_ace_{self.frontend_id}"
             try:
                 ace_info = self.vector_store.get_collection_info(ace_collection)
-            except:
+            except Exception as e:
+                logger.debug("ace_collection_info_failed",
+                           collection=ace_collection,
+                           error=str(e))
                 ace_info = None
 
             shared_info = None

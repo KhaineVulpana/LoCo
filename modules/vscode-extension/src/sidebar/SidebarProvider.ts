@@ -1420,6 +1420,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 }
 
                 function addMessage(role, content) {
+                    if (role === 'assistant' && currentAssistantMessage) {
+                        currentAssistantMessage.innerHTML = content;
+                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                        return;
+                    }
+
                     const messageDiv = document.createElement('div');
                     messageDiv.className = 'message ' + role;
 

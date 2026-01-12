@@ -34,6 +34,7 @@ async def ensure_3d_gen_training_data(
 ) -> Dict[str, Any]:
     """
     Ensure 3D-gen training data is indexed into loco_rag_3d-gen.
+    Uses hash-based caching to skip unchanged files.
     """
     frontend_id = "3d-gen"
     collection_name = f"loco_rag_{frontend_id}"
@@ -43,22 +44,6 @@ async def ensure_3d_gen_training_data(
         collection_name=collection_name,
         vector_size=embedding_manager.get_dimensions()
     )
-
-    try:
-        info = vector_store.get_collection_info(collection_name)
-        points_count = info.get("points_count", 0)
-    except Exception:
-        points_count = 0
-
-    if points_count > 0:
-        logger.info("training_data_already_indexed",
-                   frontend_id=frontend_id,
-                   points=points_count)
-        return {
-            "status": "already_indexed",
-            "points": points_count,
-            "path": str(training_path)
-        }
 
     if not training_path.exists():
         logger.error("training_data_missing",

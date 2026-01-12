@@ -146,6 +146,10 @@ class LLMClient:
                         logger.error("ollama_error", status=response.status, error=error_text)
                         raise Exception(f"Ollama API error: {error_text}")
 
+                    # Accumulate full content for XML parsing
+                    accumulated_content = ""
+                    has_native_tool_calls = False
+
                     async for line in response.content:
                         if line:
                             try:
@@ -161,25 +165,20 @@ class LLMClient:
                                                has_tool_calls=bool(message.get("tool_calls")),
                                                content_preview=message.get("content", "")[:100] if message.get("content") else None)
 
-                                    # Check for XML-style tool calls in content
                                     content = message.get("content", "")
-                                    xml_tool_calls = []
-                                    if content and not message.get("tool_calls"):
-                                        # Try parsing XML tool calls
-                                        cleaned_content, xml_tool_calls = parse_xml_tool_calls(content)
-                                        if xml_tool_calls:
-                                            logger.info("xml_tool_calls_parsed", count=len(xml_tool_calls))
-                                            content = cleaned_content
 
-                                    # Regular text response
+                                    # Accumulate content for later XML parsing
                                     if content:
+                                        accumulated_content += content
+                                        # Stream raw content to user (will be cleaned up later if XML found)
                                         yield {
                                             "type": "content",
                                             "content": content
                                         }
 
-                                    # Native tool calls
+                                    # Native tool calls (take precedence over XML)
                                     if "tool_calls" in message:
+                                        has_native_tool_calls = True
                                         logger.info("tool_calls_received", count=len(message["tool_calls"]))
                                         for tool_call in message["tool_calls"]:
                                             yield {
@@ -187,15 +186,20 @@ class LLMClient:
                                                 "tool_call": tool_call
                                             }
 
-                                    # XML tool calls
-                                    for tool_call in xml_tool_calls:
-                                        yield {
-                                            "type": "tool_call",
-                                            "tool_call": tool_call
-                                        }
-
-                                # Check if done
+                                # Check if done - parse XML here with full content
                                 if data.get("done", False):
+                                    # Try parsing XML tool calls from accumulated content
+                                    if accumulated_content and not has_native_tool_calls:
+                                        cleaned_content, xml_tool_calls = parse_xml_tool_calls(accumulated_content)
+                                        if xml_tool_calls:
+                                            logger.info("xml_tool_calls_parsed", count=len(xml_tool_calls))
+                                            # Yield tool calls
+                                            for tool_call in xml_tool_calls:
+                                                yield {
+                                                    "type": "tool_call",
+                                                    "tool_call": tool_call
+                                                }
+
                                     yield {
                                         "type": "done",
                                         "metadata": {

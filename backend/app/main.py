@@ -5,7 +5,9 @@ LoCo Agent Local - Main Server Entry Point
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import asyncio
 import structlog
+import logging
 from typing import Optional
 import secrets
 import json
@@ -13,6 +15,34 @@ from datetime import datetime, timezone
 
 from app.core.database import init_db, async_session_maker
 from app.core.config import settings
+
+# Configure logging - silence noisy libraries
+logging.basicConfig(level=logging.INFO)  # Set root logger to INFO
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.dialects").setLevel(logging.WARNING)
+logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)  # Silence HTTP request logs
+
+# Configure structlog for clean output (INFO and above only)
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.dev.ConsoleRenderer()
+    ],
+    wrapper_class=structlog.stdlib.BoundLogger,
+    context_class=dict,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    cache_logger_on_first_use=True,
+)
+
+# Set structlog minimum level to INFO (hide debug messages)
+logging.getLogger().setLevel(logging.INFO)
 from app.core.workspace_paths import resolve_workspace_path, paths_equal
 from app.core import runtime
 from app.core.qdrant_manager import QdrantManager
@@ -33,6 +63,7 @@ logger = structlog.get_logger()
 
 # Store active agents per session
 active_agents = {}
+active_agents_lock = asyncio.Lock()
 
 
 async def _resolve_workspace_path_for_session(
@@ -186,9 +217,32 @@ async def lifespan(app: FastAPI):
     logger.info("initializing_model_manager")
     runtime.model_manager = ModelManager()
 
+    # Load default model
+    try:
+        logger.info("loading_default_model",
+                   provider=settings.MODEL_PROVIDER,
+                   model=settings.MODEL_NAME,
+                   url=settings.MODEL_URL)
+
+        default_model = await runtime.model_manager.switch_model(
+            provider=settings.MODEL_PROVIDER,
+            model_name=settings.MODEL_NAME,
+            url=settings.MODEL_URL,
+            context_window=settings.MAX_CONTEXT_TOKENS
+        )
+
+        logger.info("default_model_loaded",
+                   provider=settings.MODEL_PROVIDER,
+                   model=settings.MODEL_NAME)
+    except Exception as e:
+        logger.error("default_model_load_failed",
+                    error=str(e),
+                    message="Chat will not work until a model is loaded")
+
     logger.info("server_ready",
                embedding_model=runtime.embedding_manager.get_model_name() if runtime.embedding_manager else None,
-               model_manager="initialized")
+               model_manager="initialized",
+               llm_model=f"{settings.MODEL_PROVIDER}:{settings.MODEL_NAME}" if runtime.model_manager.is_model_loaded() else "none")
     yield
 
     logger.info("server_shutting_down")
@@ -308,75 +362,76 @@ async def websocket_endpoint(
                           message=user_msg,
                           session_id=session_id)
 
-                # Get or create agent for this session
-                if session_id not in active_agents:
-                    # Fetch session and workspace info from database
-                    async with async_session_maker() as db:
-                        # Get session's workspace_id
-                        session_query = text("""
-                            SELECT workspace_id FROM sessions WHERE id = :session_id
-                        """)
-                        session_result = await db.execute(session_query, {"session_id": session_id})
-                        session_row = session_result.fetchone()
+                # Get or create agent for this session (with lock to prevent race conditions)
+                async with active_agents_lock:
+                    if session_id not in active_agents:
+                        # Fetch session and workspace info from database
+                        async with async_session_maker() as db:
+                            # Get session's workspace_id
+                            session_query = text("""
+                                SELECT workspace_id FROM sessions WHERE id = :session_id
+                            """)
+                            session_result = await db.execute(session_query, {"session_id": session_id})
+                            session_row = session_result.fetchone()
 
-                        if not session_row:
-                            await websocket.send_json({
-                                "type": "server.error",
-                                "error": {
-                                    "code": "session_not_found",
-                                    "message": "Session not found"
-                                }
-                            })
-                            continue
+                            if not session_row:
+                                await websocket.send_json({
+                                    "type": "server.error",
+                                    "error": {
+                                        "code": "session_not_found",
+                                        "message": "Session not found"
+                                    }
+                                })
+                                continue
 
-                        workspace_id = session_row[0]
+                            workspace_id = session_row[0]
 
-                        # Get workspace path
-                        workspace_query = text("""
-                            SELECT path, name FROM workspaces WHERE id = :workspace_id
-                        """)
-                        workspace_result = await db.execute(workspace_query, {"workspace_id": workspace_id})
-                        workspace_row = workspace_result.fetchone()
+                            # Get workspace path
+                            workspace_query = text("""
+                                SELECT path, name FROM workspaces WHERE id = :workspace_id
+                            """)
+                            workspace_result = await db.execute(workspace_query, {"workspace_id": workspace_id})
+                            workspace_row = workspace_result.fetchone()
 
-                        if not workspace_row:
-                            await websocket.send_json({
-                                "type": "server.error",
-                                "error": {
-                                    "code": "workspace_not_found",
-                                    "message": "Workspace not found"
-                                }
-                            })
-                            continue
+                            if not workspace_row:
+                                await websocket.send_json({
+                                    "type": "server.error",
+                                    "error": {
+                                        "code": "workspace_not_found",
+                                        "message": "Workspace not found"
+                                    }
+                                })
+                                continue
 
-                        workspace_path = await _resolve_workspace_path_for_session(
-                            db=db,
+                            workspace_path = await _resolve_workspace_path_for_session(
+                                db=db,
+                                workspace_id=workspace_id,
+                                stored_path=workspace_row[0],
+                                workspace_name=workspace_row[1]
+                            )
+
+                        # Determine frontend_id from context (default to vscode for now)
+                        # TODO: Get frontend_id from client_info in handshake
+                        frontend_id = context.get("frontend_id", "vscode")
+
+                        # Create agent for this session with RAG components and model manager
+                        agent = Agent(
+                            workspace_path=workspace_path,
+                            frontend_id=frontend_id,
                             workspace_id=workspace_id,
-                            stored_path=workspace_row[0],
-                            workspace_name=workspace_row[1]
+                            db_session_maker=async_session_maker,
+                            model_manager=runtime.model_manager,
+                            embedding_manager=runtime.embedding_manager,
+                            vector_store=runtime.vector_store
                         )
-
-                    # Determine frontend_id from context (default to vscode for now)
-                    # TODO: Get frontend_id from client_info in handshake
-                    frontend_id = context.get("frontend_id", "vscode")
-
-                    # Create agent for this session with RAG components and model manager
-                    agent = Agent(
-                        workspace_path=workspace_path,
-                        frontend_id=frontend_id,
-                        workspace_id=workspace_id,
-                        db_session_maker=async_session_maker,
-                        model_manager=runtime.model_manager,
-                        embedding_manager=runtime.embedding_manager,
-                        vector_store=runtime.vector_store
-                    )
-                    active_agents[session_id] = agent
-                    logger.info("agent_created",
-                               session_id=session_id,
-                               workspace_path=workspace_path,
-                               frontend_id=frontend_id,
-                               rag_enabled=agent.retriever is not None)
-                else:
-                    agent = active_agents[session_id]
+                        active_agents[session_id] = agent
+                        logger.info("agent_created",
+                                   session_id=session_id,
+                                   workspace_path=workspace_path,
+                                   frontend_id=frontend_id,
+                                   rag_enabled=agent.retriever is not None)
+                    else:
+                        agent = active_agents[session_id]
 
                 # Process message through agent
                 try:
@@ -411,15 +466,17 @@ async def websocket_endpoint(
 
     except WebSocketDisconnect:
         logger.info("websocket_disconnected", session_id=session_id)
-        # Clean up agent
-        if session_id in active_agents:
-            del active_agents[session_id]
-            logger.info("agent_cleaned_up", session_id=session_id)
+        # Clean up agent (with lock to prevent race conditions)
+        async with active_agents_lock:
+            if session_id in active_agents:
+                del active_agents[session_id]
+                logger.info("agent_cleaned_up", session_id=session_id)
     except Exception as e:
         logger.error("websocket_error", error=str(e), session_id=session_id)
-        # Clean up agent
-        if session_id in active_agents:
-            del active_agents[session_id]
+        # Clean up agent (with lock to prevent race conditions)
+        async with active_agents_lock:
+            if session_id in active_agents:
+                del active_agents[session_id]
         await websocket.close(code=1011, reason="Internal server error")
 
 

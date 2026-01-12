@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     VERSION: str = "0.1.0"
     PROTOCOL_VERSION: str = "1.0.0"
     PORT: int = 3199
-    DEBUG: bool = True
+    DEBUG: bool = False  # Disable to reduce log noise (SQLAlchemy query echo)
 
     # Security
     SECRET_KEY: str = secrets.token_urlsafe(32)

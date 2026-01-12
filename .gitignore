@@ -38,6 +38,7 @@ desktop.ini
 *.swp
 *.swo
 .DS_Store
+qdrant_storage/
 2510.04618v1.pdf
 backend/data/remote-docs/content/
 backend/data/remote-docs/metadata.json

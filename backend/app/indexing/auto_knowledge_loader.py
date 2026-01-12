@@ -71,17 +71,13 @@ async def ensure_shared_knowledge(
 ) -> Dict[str, Any]:
     """
     Ensure shared coding docs are indexed into loco_rag_shared.
-    This collection is rebuilt each startup to avoid duplicates.
+    Uses hash-based caching to skip unchanged files.
     """
     frontend_id = "shared"
     collection_name = f"loco_rag_{frontend_id}"
     docs_dirs, docs_files = resolve_sources(dir_overrides, file_overrides)
 
-    try:
-        vector_store.delete_collection(collection_name)
-    except Exception:
-        pass
-
+    # Create collection if it doesn't exist (idempotent)
     vector_store.create_collection(
         collection_name=collection_name,
         vector_size=embedding_manager.get_dimensions()
@@ -116,6 +112,7 @@ async def ensure_shared_knowledge(
         totals["total_files"] += stats.get("total_files", 0)
         totals["indexed"] += stats.get("indexed", 0)
         totals["failed"] += stats.get("failed", 0)
+        totals["skipped"] += stats.get("skipped", 0)
 
     if docs_files:
         file_stats = await indexer.index_files([str(path) for path in docs_files])

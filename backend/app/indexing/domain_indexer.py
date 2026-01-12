@@ -107,10 +107,24 @@ class KnowledgeIndexer:
             files.extend(docs_path.rglob(f"*{ext}"))
 
         indexed = 0
+        skipped = 0
         failed = 0
 
         for file_path in files:
             try:
+                # Check if file was already indexed
+                content = self._read_file(file_path)
+                if content and file_path.suffix != '.jsonl':
+                    content_hash = self._calculate_content_hash(content)
+                    was_cached = await self._is_file_already_indexed(
+                        collection_name,
+                        file_path,
+                        content_hash
+                    )
+                    if was_cached:
+                        skipped += 1
+                        continue
+
                 success = await self._index_doc_file(
                     file_path,
                     collection_name
@@ -129,12 +143,14 @@ class KnowledgeIndexer:
                    frontend_id=self.frontend_id,
                    total_files=len(files),
                    indexed=indexed,
+                   skipped=skipped,
                    failed=failed)
 
         return {
             "frontend_id": self.frontend_id,
             "total_files": len(files),
             "indexed": indexed,
+            "skipped": skipped,
             "failed": failed
         }
 
@@ -213,12 +229,99 @@ class KnowledgeIndexer:
             "skipped": skipped
         }
 
+    def _calculate_content_hash(self, content: str) -> str:
+        """Calculate SHA256 hash of content for change detection"""
+        return hashlib.sha256(content.encode('utf-8')).hexdigest()
+
+    async def _is_file_already_indexed(
+        self,
+        collection_name: str,
+        file_path: Path,
+        content_hash: str
+    ) -> bool:
+        """
+        Check if file is already indexed with the same content hash
+
+        Returns:
+            True if file exists in vector store with same hash, False otherwise
+        """
+        try:
+            # Query for any vectors with this file path
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+            scroll_result = self.vector_store.client.scroll(
+                collection_name=collection_name,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="full_path",
+                            match=MatchValue(value=str(file_path))
+                        )
+                    ]
+                ),
+                limit=1,
+                with_payload=True,
+                with_vectors=False
+            )
+
+            points = scroll_result[0]
+            if not points:
+                return False
+
+            # Check if hash matches
+            existing_hash = points[0].payload.get("content_hash")
+            if existing_hash == content_hash:
+                logger.debug("file_already_indexed_with_same_hash",
+                           file=str(file_path),
+                           hash=content_hash[:8])
+                return True
+            else:
+                logger.debug("file_hash_changed",
+                           file=str(file_path),
+                           old_hash=existing_hash[:8] if existing_hash else "none",
+                           new_hash=content_hash[:8])
+                # Need to delete old vectors before re-indexing
+                await self._delete_file_vectors(collection_name, file_path)
+                return False
+
+        except Exception as e:
+            logger.warning("hash_check_failed",
+                         file=str(file_path),
+                         error=str(e))
+            return False
+
+    async def _delete_file_vectors(
+        self,
+        collection_name: str,
+        file_path: Path
+    ) -> None:
+        """Delete all vectors for a specific file"""
+        try:
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+            self.vector_store.client.delete(
+                collection_name=collection_name,
+                points_selector=Filter(
+                    must=[
+                        FieldCondition(
+                            key="full_path",
+                            match=MatchValue(value=str(file_path))
+                        )
+                    ]
+                )
+            )
+            logger.debug("deleted_old_vectors", file=str(file_path))
+        except Exception as e:
+            logger.warning("vector_deletion_failed",
+                         file=str(file_path),
+                         error=str(e))
+
     async def _index_doc_file(
         self,
         file_path: Path,
         collection_name: str
     ) -> bool:
-        """Index a single documentation file"""
+        """Index a single documentation file with hash-based caching"""
         logger.debug("indexing_doc_file", file=str(file_path))
 
         # Read content
@@ -229,6 +332,16 @@ class KnowledgeIndexer:
         # Skip JSONL files (handled separately)
         if file_path.suffix == '.jsonl':
             return False
+
+        # Calculate content hash
+        content_hash = self._calculate_content_hash(content)
+
+        # Check if already indexed with same hash
+        if await self._is_file_already_indexed(collection_name, file_path, content_hash):
+            logger.info("doc_file_skipped_unchanged",
+                       file=str(file_path),
+                       hash=content_hash[:8])
+            return True  # Return True because file is indexed, just not newly
 
         # Chunk content
         chunks = self.chunker.chunk_file(
@@ -261,7 +374,8 @@ class KnowledgeIndexer:
                     "source": str(file_path.name),
                     "full_path": str(file_path),
                     "chunk_index": idx,
-                    "content": chunk.content,  # Store content in payload for operational knowledge
+                    "content": chunk.content,
+                    "content_hash": content_hash,  # Store hash for future comparisons
                     "type": "documentation"
                 }
             ))
@@ -271,7 +385,8 @@ class KnowledgeIndexer:
             self.vector_store.upsert_vectors(collection_name, points)
             logger.info("doc_file_indexed",
                        file=str(file_path),
-                       chunks=len(chunks))
+                       chunks=len(chunks),
+                       hash=content_hash[:8])
             return True
         except Exception as e:
             logger.error("vector_storage_failed",
@@ -348,8 +463,40 @@ class KnowledgeIndexer:
         file_path: Path,
         collection_name: str
     ) -> int:
-        """Index a JSONL training data file"""
+        """Index a JSONL training data file with hash-based caching"""
         logger.debug("indexing_jsonl_file", file=str(file_path))
+
+        # Read entire file for hash calculation
+        with open(file_path, 'r', encoding='utf-8') as f:
+            file_content = f.read()
+
+        # Calculate content hash
+        content_hash = self._calculate_content_hash(file_content)
+
+        # Check if already indexed with same hash
+        if await self._is_file_already_indexed(collection_name, file_path, content_hash):
+            # Count existing vectors for this file
+            try:
+                from qdrant_client.models import Filter, FieldCondition, MatchValue
+                count_result = self.vector_store.client.count(
+                    collection_name=collection_name,
+                    count_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="full_path",
+                                match=MatchValue(value=str(file_path))
+                            )
+                        ]
+                    )
+                )
+                indexed_count = count_result.count
+                logger.info("jsonl_file_skipped_unchanged",
+                           file=str(file_path),
+                           examples=indexed_count,
+                           hash=content_hash[:8])
+                return indexed_count
+            except Exception:
+                return 0
 
         indexed_count = 0
 
@@ -392,6 +539,7 @@ class KnowledgeIndexer:
                             "full_path": str(file_path),
                             "line_number": line_num,
                             "content": content,
+                            "content_hash": content_hash,  # Store hash for future comparisons
                             "prompt": prompt,
                             "completion": completion,
                             "instruction": instruction,
@@ -424,7 +572,8 @@ class KnowledgeIndexer:
 
         logger.info("jsonl_file_indexed",
                    file=str(file_path),
-                   items=indexed_count)
+                   items=indexed_count,
+                   hash=content_hash[:8])
 
         return indexed_count
 

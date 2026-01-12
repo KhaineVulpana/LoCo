@@ -40,11 +40,15 @@ export class ServerClient {
         const autoWatchWorkspace = config.get<boolean>('autoWatchWorkspace', false);
         const usePollingWatcher = config.get<boolean>('usePollingWatcher', false);
 
+        console.log(`Connecting to server at ${serverUrl}...`);
+
         // Get or create token
         const token = authEnabled ? await this.getOrCreateToken() : undefined;
         this.serverUrl = serverUrl;
         this.authToken = token;
+
         // Register workspace if needed
+        console.log('Registering workspace...');
         this.workspaceId = await this.registerWorkspace(
             serverUrl,
             token,
@@ -52,6 +56,7 @@ export class ServerClient {
             autoWatchWorkspace,
             usePollingWatcher
         );
+        console.log(`Workspace registered: ${this.workspaceId}`);
 
         await this.applyWorkspacePolicyOverrides(serverUrl, token);
 
@@ -68,10 +73,13 @@ export class ServerClient {
         }
 
         // Create session
+        console.log('Creating session...');
         this.sessionId = await this.createSession(serverUrl, token);
+        console.log(`Session created: ${this.sessionId}`);
 
         // Connect WebSocket
         const wsUrl = serverUrl.replace('http', 'ws') + `/v1/sessions/${this.sessionId}/stream`;
+        console.log(`Connecting WebSocket to ${wsUrl}...`);
 
         return new Promise((resolve, reject) => {
             const headers: Record<string, string> = {};
@@ -82,7 +90,7 @@ export class ServerClient {
             this.ws = new WebSocket(wsUrl, { headers });
 
             this.ws.on('open', () => {
-                console.log('WebSocket connected');
+                console.log('✓ WebSocket connected successfully');
                 this.reconnectAttempts = 0;
 
                 // Send client hello
@@ -121,9 +129,20 @@ export class ServerClient {
     }
 
     disconnect(): void {
+        // Close WebSocket connection
         if (this.ws) {
             this.ws.close();
             this.ws = null;
+        }
+
+        // Clear all handlers to prevent memory leaks
+        this.messageHandlers = [];
+        this.indexProgressHandlers = [];
+
+        // Abort index stream if active
+        if (this.indexStreamController) {
+            this.indexStreamController.abort();
+            this.indexStreamController = null;
         }
     }
 
@@ -144,11 +163,17 @@ export class ServerClient {
     }
 
     onMessage(handler: MessageHandler): void {
-        this.messageHandlers.push(handler);
+        // Only add if not already registered (prevent duplicates from reactivation)
+        if (!this.messageHandlers.includes(handler)) {
+            this.messageHandlers.push(handler);
+        }
     }
 
     onIndexProgress(handler: IndexProgressHandler): void {
-        this.indexProgressHandlers.push(handler);
+        // Only add if not already registered (prevent duplicates from reactivation)
+        if (!this.indexProgressHandlers.includes(handler)) {
+            this.indexProgressHandlers.push(handler);
+        }
     }
 
     async syncWorkspacePolicy(): Promise<void> {

@@ -3,7 +3,7 @@ ACE Curator - Integrates insights into structured context updates
 """
 
 import json
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 import structlog
 
 from app.core.llm_client import LLMClient
@@ -24,7 +24,7 @@ class Curator:
 
     def __init__(
         self,
-        llm_client: Optional[LLMClient] = None,
+        llm_client: Optional[Union[LLMClient, "IsolatedLLMClient"]] = None,
         embedding_manager: Optional[EmbeddingManager] = None,
         vector_store: Optional[VectorStore] = None,
         collection_name: Optional[str] = None

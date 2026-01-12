@@ -28,7 +28,9 @@ logger = structlog.get_logger()
 
 router = APIRouter()
 indexing_tasks = {}
+indexing_tasks_lock = asyncio.Lock()
 workspace_watchers = {}
+workspace_watchers_lock = asyncio.Lock()
 
 
 class WorkspaceCreate(BaseModel):
@@ -101,7 +103,7 @@ DEFAULT_POLICY: Dict[str, Any] = {
 }
 
 
-def _schedule_workspace_index(
+async def _schedule_workspace_index(
     workspace_id: str,
     workspace_path: str,
     frontend_id: str,
@@ -111,25 +113,32 @@ def _schedule_workspace_index(
     use_polling: bool = False
 ) -> None:
     """Start workspace indexing in a background task."""
-    existing = indexing_tasks.get(workspace_id)
-    if existing and not existing.done():
-        return
+    async with indexing_tasks_lock:
+        existing = indexing_tasks.get(workspace_id)
+        if existing and not existing.done():
+            return
 
-    async def _run_index():
-        async with async_session_maker() as session:
-            indexer = FileIndexer(
-                workspace_id=workspace_id,
-                frontend_id=frontend_id,
-                workspace_path=workspace_path,
-                embedding_manager=embedding_manager,
-                vector_store=vector_store,
-                db_session=session
-            )
-            await indexer.index_workspace()
+        async def _run_index():
+            async with async_session_maker() as session:
+                indexer = FileIndexer(
+                    workspace_id=workspace_id,
+                    frontend_id=frontend_id,
+                    workspace_path=workspace_path,
+                    embedding_manager=embedding_manager,
+                    vector_store=vector_store,
+                    db_session=session
+                )
+                await indexer.index_workspace()
 
-    task = asyncio.create_task(_run_index())
-    indexing_tasks[workspace_id] = task
-    task.add_done_callback(lambda t: indexing_tasks.pop(workspace_id, None))
+        task = asyncio.create_task(_run_index())
+        indexing_tasks[workspace_id] = task
+
+        # Cleanup callback needs lock too
+        async def _cleanup_task(_):
+            async with indexing_tasks_lock:
+                indexing_tasks.pop(workspace_id, None)
+
+        task.add_done_callback(lambda t: asyncio.create_task(_cleanup_task(t)))
     if auto_watch:
         def _start_watch(_):
             asyncio.create_task(
@@ -221,32 +230,33 @@ async def _start_workspace_watch(
     if not is_watchdog_available():
         raise RuntimeError("watchdog_not_available")
 
-    existing = workspace_watchers.get(workspace_id)
-    if existing:
-        if existing.frontend_id != frontend_id or existing.use_polling != use_polling:
-            await existing.stop()
+    async with workspace_watchers_lock:
+        existing = workspace_watchers.get(workspace_id)
+        if existing:
+            if existing.frontend_id != frontend_id or existing.use_polling != use_polling:
+                await existing.stop()
+                workspace_watchers.pop(workspace_id, None)
+            elif existing.is_running():
+                return existing
+
+        _validate_workspace_path(workspace_id, workspace_path)
+
+        watcher = WorkspaceFileWatcher(
+            workspace_id=workspace_id,
+            frontend_id=frontend_id,
+            workspace_path=workspace_path,
+            embedding_manager=embedding_manager,
+            vector_store=vector_store,
+            db_session_maker=async_session_maker,
+            use_polling=use_polling
+        )
+        workspace_watchers[workspace_id] = watcher
+        try:
+            await watcher.start()
+        except Exception:
             workspace_watchers.pop(workspace_id, None)
-        elif existing.is_running():
-            return existing
-
-    _validate_workspace_path(workspace_id, workspace_path)
-
-    watcher = WorkspaceFileWatcher(
-        workspace_id=workspace_id,
-        frontend_id=frontend_id,
-        workspace_path=workspace_path,
-        embedding_manager=embedding_manager,
-        vector_store=vector_store,
-        db_session_maker=async_session_maker,
-        use_polling=use_polling
-    )
-    workspace_watchers[workspace_id] = watcher
-    try:
-        await watcher.start()
-    except Exception:
-        workspace_watchers.pop(workspace_id, None)
-        raise
-    return watcher
+            raise
+        return watcher
 
 
 async def _start_workspace_watch_safe(
@@ -283,12 +293,13 @@ async def _start_workspace_watch_safe(
 
 
 async def _stop_workspace_watch(workspace_id: str) -> bool:
-    watcher = workspace_watchers.get(workspace_id)
-    if not watcher:
-        return False
-    await watcher.stop()
-    workspace_watchers.pop(workspace_id, None)
-    return True
+    async with workspace_watchers_lock:
+        watcher = workspace_watchers.get(workspace_id)
+        if not watcher:
+            return False
+        await watcher.stop()
+        workspace_watchers.pop(workspace_id, None)
+        return True
 
 
 def _parse_list(value: Optional[str], fallback: List[str]) -> List[str]:
@@ -363,7 +374,7 @@ async def register_workspace(
             try:
                 embedding_manager = get_embedding_manager()
                 vector_store = get_vector_store()
-                _schedule_workspace_index(
+                await _schedule_workspace_index(
                     workspace_id=existing[0],
                     workspace_path=resolved_path,
                     frontend_id=workspace.frontend_id,
@@ -428,7 +439,7 @@ async def register_workspace(
         try:
             embedding_manager = get_embedding_manager()
             vector_store = get_vector_store()
-            _schedule_workspace_index(
+            await _schedule_workspace_index(
                 workspace_id=workspace_id,
                 workspace_path=workspace.path,
                 frontend_id=workspace.frontend_id,
@@ -713,7 +724,7 @@ async def stream_index_progress(
             try:
                 embedding_manager = get_embedding_manager()
                 vector_store = get_vector_store()
-                _schedule_workspace_index(
+                await _schedule_workspace_index(
                     workspace_id=workspace_id,
                     workspace_path=workspace_path,
                     frontend_id=frontend_id,
@@ -836,8 +847,9 @@ async def stop_workspace_watch(workspace_id: str):
 @router.get("/{workspace_id}/watch/status")
 async def workspace_watch_status(workspace_id: str):
     """Check whether a workspace watcher is running."""
-    watcher = workspace_watchers.get(workspace_id)
-    return {
-        "running": bool(watcher and watcher.is_running()),
-        "frontend_id": watcher.frontend_id if watcher else None
-    }
+    async with workspace_watchers_lock:
+        watcher = workspace_watchers.get(workspace_id)
+        return {
+            "running": bool(watcher and watcher.is_running()),
+            "frontend_id": watcher.frontend_id if watcher else None
+        }
