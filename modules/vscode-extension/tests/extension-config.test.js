@@ -70,4 +70,13 @@ test('extension exposes workspace policy settings', () => {
   assert.ok(settings['locoAgent.policy.networkEnabled']);
   assert.ok(settings['locoAgent.policy.autoApproveSimpleChanges']);
   assert.ok(settings['locoAgent.policy.autoApproveTests']);
+  assert.ok(settings['locoAgent.policy.autoApproveTools.readFile']);
+  assert.ok(settings['locoAgent.policy.autoApproveTools.writeFile']);
+  assert.ok(settings['locoAgent.policy.autoApproveTools.listFiles']);
+  assert.ok(settings['locoAgent.policy.autoApproveTools.applyPatch']);
+  assert.ok(settings['locoAgent.policy.autoApproveTools.proposePatch']);
+  assert.ok(settings['locoAgent.policy.autoApproveTools.proposeDiff']);
+  assert.ok(settings['locoAgent.policy.autoApproveTools.reportPlan']);
+  assert.ok(settings['locoAgent.policy.autoApproveTools.runCommand']);
+  assert.ok(settings['locoAgent.policy.autoApproveTools.runTests']);
 });

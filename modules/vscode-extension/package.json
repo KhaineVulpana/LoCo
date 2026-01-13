@@ -212,6 +212,51 @@
           "type": "boolean",
           "default": false,
           "description": "Auto-approve test commands"
+        },
+        "locoAgent.policy.autoApproveTools.readFile": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve read_file tool calls"
+        },
+        "locoAgent.policy.autoApproveTools.writeFile": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve write_file tool calls"
+        },
+        "locoAgent.policy.autoApproveTools.listFiles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve list_files tool calls"
+        },
+        "locoAgent.policy.autoApproveTools.applyPatch": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve apply_patch tool calls"
+        },
+        "locoAgent.policy.autoApproveTools.proposePatch": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve propose_patch tool calls"
+        },
+        "locoAgent.policy.autoApproveTools.proposeDiff": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve propose_diff tool calls"
+        },
+        "locoAgent.policy.autoApproveTools.reportPlan": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve report_plan tool calls"
+        },
+        "locoAgent.policy.autoApproveTools.runCommand": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve run_command tool calls"
+        },
+        "locoAgent.policy.autoApproveTools.runTests": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve run_tests tool calls"
         }
       }
     },

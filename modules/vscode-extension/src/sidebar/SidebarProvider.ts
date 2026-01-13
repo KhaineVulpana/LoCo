@@ -41,6 +41,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 case 'sendMessage':
                     await this.sendMessage(data.message);
                     break;
+                case 'stopGeneration':
+                    this.stopGeneration();
+                    break;
                 case 'acceptPatch':
                     vscode.commands.executeCommand('locoAgent.acceptPatch', data.patchId);
                     break;
@@ -55,6 +58,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'openMentionPicker':
                     await this.openMentionPicker();
+                    break;
+                case 'listSessions':
+                    await this.handleListSessions();
+                    break;
+                case 'switchSession':
+                    await this.handleSwitchSession(data.sessionId);
+                    break;
+                case 'createNewSession':
+                    await this.handleCreateNewSession();
                     break;
             }
         });
@@ -72,12 +84,33 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             context.command = parsed.command;
         }
 
+        // Notify UI that generation is starting
+        if (this.view) {
+            this.view.webview.postMessage({
+                type: 'generationStarted'
+            });
+        }
+
         // Send to server
         this.serverClient.send({
             type: 'client.user_message',
             message: parsed.message || message,
             context: context
         });
+    }
+
+    private stopGeneration(): void {
+        // Send cancellation message to server
+        this.serverClient.send({
+            type: 'client.cancel'
+        });
+
+        // Notify UI that generation stopped
+        if (this.view) {
+            this.view.webview.postMessage({
+                type: 'generationStopped'
+            });
+        }
     }
 
     private parseSlashCommand(message: string): { command?: string; message: string } {
@@ -143,6 +176,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             case 'assistant.message_final':
                 this.addMessage('assistant', message.message);
                 this.clearThinking();
+                // Notify UI that generation is complete
+                if (this.view) {
+                    this.view.webview.postMessage({
+                        type: 'generationStopped'
+                    });
+                }
                 break;
 
             case 'assistant.tool_use':
@@ -163,6 +202,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
             case 'server.error':
                 this.showError(message.error.message);
+                // Notify UI that generation stopped due to error
+                if (this.view) {
+                    this.view.webview.postMessage({
+                        type: 'generationStopped'
+                    });
+                }
                 break;
         }
     }
@@ -255,7 +300,81 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     private renderMarkdown(content: string): string {
-        return marked.parse(content) as string;
+        // Clean up excessive newlines and whitespace
+        const cleaned = content
+            .replace(/\n{3,}/g, '\n\n')  // Replace 3+ newlines with 2
+            .trim();
+
+        const html = marked.parse(cleaned) as string;
+
+        // Remove empty paragraphs that markdown might create
+        return html.replace(/<p>\s*<\/p>/g, '');
+    }
+
+    private async handleListSessions(): Promise<void> {
+        try {
+            const sessions = await this.serverClient.listSessions();
+            if (this.view) {
+                this.view.webview.postMessage({
+                    type: 'sessionsList',
+                    sessions
+                });
+            }
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to list sessions: ${error.message}`);
+        }
+    }
+
+    private async handleSwitchSession(sessionId: string): Promise<void> {
+        try {
+            // Load messages for the session first
+            const messages = await this.serverClient.getSessionMessages(sessionId);
+
+            // Switch to the session
+            await this.serverClient.switchToSession(sessionId);
+
+            // Clear current messages
+            this.messages = [];
+
+            if (this.view) {
+                this.view.webview.postMessage({
+                    type: 'clearMessages'
+                });
+
+                // Load the session's messages
+                for (const msg of messages) {
+                    this.messages.push({ role: msg.role, content: msg.content });
+                    this.view.webview.postMessage({
+                        type: 'addMessage',
+                        role: msg.role,
+                        content: this.renderMarkdown(msg.content)
+                    });
+                }
+            }
+
+            vscode.window.showInformationMessage('Switched to session');
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to switch session: ${error.message}`);
+        }
+    }
+
+    private async handleCreateNewSession(): Promise<void> {
+        try {
+            await this.serverClient.createNewSession();
+
+            // Clear current messages
+            this.messages = [];
+
+            if (this.view) {
+                this.view.webview.postMessage({
+                    type: 'clearMessages'
+                });
+            }
+
+            vscode.window.showInformationMessage('Created new session');
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to create new session: ${error.message}`);
+        }
     }
 
     private getHtmlContent(webview: vscode.Webview): string {
@@ -363,11 +482,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 }
 
                 .message-content p {
-                    margin: 0 0 12px 0;
+                    margin: 0 0 8px 0;
                 }
 
                 .message-content p:last-child {
                     margin-bottom: 0;
+                }
+
+                .message-content p:empty {
+                    display: none;
                 }
 
                 .message-content code {
@@ -880,9 +1003,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
                 .message-content {
                     line-height: 1.5;
-                    white-space: pre-wrap;
                     word-break: break-word;
                     user-select: text;
+                }
+
+                .message-content pre {
+                    white-space: pre-wrap;
+                }
+
+                .message-content code {
+                    white-space: pre-wrap;
                 }
 
                 .message-bubble {
@@ -903,11 +1033,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 }
 
                 .message-content p {
-                    margin: 0 0 12px 0;
+                    margin: 0 0 8px 0;
                 }
 
                 .message-content p:last-child {
                     margin-bottom: 0;
+                }
+
+                .message-content p:empty {
+                    display: none;
                 }
 
                 .message-content code {
@@ -942,14 +1076,40 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     margin: 4px 0;
                 }
 
-                .thinking-indicator {
+                .thinking-card {
+                    border: 0.5px solid var(--app-input-border);
+                    border-radius: 10px;
+                    background: var(--app-tool-background);
+                    margin: 8px 0;
+                    max-width: 100%;
+                    overflow: hidden;
+                }
+
+                .thinking-card-header {
+                    padding: 8px 8px 8px 12px;
+                    font-weight: 500;
+                    color: var(--app-secondary-foreground);
+                    cursor: pointer;
                     display: flex;
                     align-items: center;
-                    margin-top: 4px;
-                    margin-left: 0;
-                    animation: fadeIn 0.3s ease-in-out;
-                    height: 1.85em;
-                    color: var(--app-secondary-foreground);
+                    gap: 6px;
+                    user-select: none;
+                    font-size: 0.9em;
+                    transition: background-color 0.15s;
+                }
+
+                .thinking-card-header:hover {
+                    background: var(--app-ghost-button-hover-background);
+                }
+
+                .thinking-card-header-icon {
+                    font-size: 10px;
+                    opacity: 0.7;
+                    transition: transform 0.2s;
+                }
+
+                .thinking-card-header-icon.expanded {
+                    transform: rotate(90deg);
                 }
 
                 .thinking-spinner {
@@ -960,6 +1120,23 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     border-radius: 50%;
                     animation: spin 0.8s linear infinite;
                     margin-right: 6px;
+                }
+
+                .thinking-card-body {
+                    margin: 0;
+                    padding: 8px;
+                    white-space: pre-wrap;
+                    word-break: break-word;
+                    font-family: var(--app-monospace-font-family);
+                    font-size: 0.85em;
+                    color: var(--app-primary-foreground);
+                    border-top: 0.5px solid var(--app-input-border);
+                    max-height: 300px;
+                    overflow-y: auto;
+                }
+
+                .thinking-card-body.collapsed {
+                    display: none;
                 }
 
                 .thinking-text {
@@ -1020,12 +1197,34 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     max-width: 100%;
                     font-size: 1em;
                     align-items: start;
+                    overflow: hidden;
                 }
 
                 .tool-card-header {
-                    padding: 8px;
-                    font-weight: 600;
-                    color: var(--app-primary-foreground);
+                    padding: 8px 8px 8px 12px;
+                    font-weight: 500;
+                    color: var(--app-secondary-foreground);
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    user-select: none;
+                    font-size: 0.9em;
+                    transition: background-color 0.15s;
+                }
+
+                .tool-card-header:hover {
+                    background: var(--app-ghost-button-hover-background);
+                }
+
+                .tool-card-header-icon {
+                    font-size: 10px;
+                    opacity: 0.7;
+                    transition: transform 0.2s;
+                }
+
+                .tool-card-header-icon.expanded {
+                    transform: rotate(90deg);
                 }
 
                 .tool-card-body {
@@ -1037,6 +1236,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     font-size: 0.85em;
                     color: var(--app-primary-foreground);
                     border-top: 0.5px solid var(--app-input-border);
+                    max-height: 300px;
+                    overflow-y: auto;
+                }
+
+                .tool-card-body.collapsed {
+                    display: none;
                 }
 
                 .plan-steps {
@@ -1206,6 +1411,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     cursor: not-allowed;
                 }
 
+                #send-button.stop-button {
+                    background-color: #d73a49;
+                }
+
+                #send-button.stop-button:hover:not(:disabled) {
+                    background-color: #cb2431;
+                }
+
                 .empty-state {
                     display: flex;
                     flex-direction: column;
@@ -1300,11 +1513,21 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
                 let currentAssistantMessage = null;
                 let hasMessages = false;
+                let isGenerating = false;
 
                 function updateSendButtonState() {
-                    const hasText = Boolean(messageInput.value.trim());
-                    sendButton.disabled = !hasText;
-                    sendButton.classList.toggle('primary', hasText);
+                    if (isGenerating) {
+                        sendButton.textContent = 'Stop';
+                        sendButton.disabled = false;
+                        sendButton.classList.add('primary');
+                        sendButton.classList.add('stop-button');
+                    } else {
+                        const hasText = Boolean(messageInput.value.trim());
+                        sendButton.textContent = 'Send';
+                        sendButton.disabled = !hasText;
+                        sendButton.classList.toggle('primary', hasText);
+                        sendButton.classList.remove('stop-button');
+                    }
                 }
 
                 // Auto-resize textarea
@@ -1314,17 +1537,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     updateSendButtonState();
                 });
 
-                // Send message
+                // Send message or stop generation
                 function sendMessage() {
-                    const message = messageInput.value.trim();
-                    if (message) {
+                    if (isGenerating) {
+                        // Stop generation
                         vscode.postMessage({
-                            type: 'sendMessage',
-                            message: message
+                            type: 'stopGeneration'
                         });
-                        messageInput.value = '';
-                        messageInput.style.height = 'auto';
-                        updateSendButtonState();
+                    } else {
+                        const message = messageInput.value.trim();
+                        if (message) {
+                            vscode.postMessage({
+                                type: 'sendMessage',
+                                message: message
+                            });
+                            messageInput.value = '';
+                            messageInput.style.height = 'auto';
+                            updateSendButtonState();
+                        }
                     }
                 }
 
@@ -1347,13 +1577,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
                 if (sessionButton) {
                     sessionButton.addEventListener('click', () => {
-                        messageInput.focus();
+                        vscode.postMessage({ type: 'listSessions' });
                     });
                 }
 
                 if (newSessionButton) {
                     newSessionButton.addEventListener('click', () => {
-                        messageInput.focus();
+                        vscode.postMessage({ type: 'createNewSession' });
                     });
                 }
 
@@ -1400,6 +1630,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                             break;
                         case 'insertMention':
                             insertMention(message.text);
+                            break;
+                        case 'sessionsList':
+                            showSessionsList(message.sessions);
+                            break;
+                        case 'clearMessages':
+                            clearAllMessages();
+                            break;
+                        case 'generationStarted':
+                            isGenerating = true;
+                            updateSendButtonState();
+                            break;
+                        case 'generationStopped':
+                            isGenerating = false;
+                            updateSendButtonState();
                             break;
                     }
                 });
@@ -1463,27 +1707,80 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
                 }
 
-                let thinkingDiv = null;
+                let thinkingCard = null;
+                let thinkingBody = null;
+                let thinkingHistory = [];
 
                 function updateThinking(phase, message) {
-                    if (!thinkingDiv) {
-                        thinkingDiv = document.createElement('div');
-                        thinkingDiv.className = 'thinking-indicator';
-                        thinkingDiv.innerHTML = \`
-                            <div class="thinking-spinner"></div>
-                            <div class="thinking-text"></div>
-                        \`;
-                        messagesContainer.appendChild(thinkingDiv);
+                    if (!thinkingCard) {
+                        thinkingCard = document.createElement('div');
+                        thinkingCard.className = 'thinking-card';
+
+                        const headerDiv = document.createElement('div');
+                        headerDiv.className = 'thinking-card-header';
+
+                        const icon = document.createElement('span');
+                        icon.className = 'thinking-card-header-icon';
+                        icon.textContent = '▶';
+
+                        const spinner = document.createElement('div');
+                        spinner.className = 'thinking-spinner';
+
+                        const text = document.createElement('span');
+                        text.className = 'thinking-text';
+                        text.textContent = 'Thinking...';
+
+                        headerDiv.appendChild(icon);
+                        headerDiv.appendChild(spinner);
+                        headerDiv.appendChild(text);
+
+                        thinkingBody = document.createElement('pre');
+                        thinkingBody.className = 'thinking-card-body collapsed';
+
+                        // Toggle collapse/expand on header click
+                        headerDiv.addEventListener('click', () => {
+                            const isCollapsed = thinkingBody.classList.contains('collapsed');
+                            thinkingBody.classList.toggle('collapsed');
+                            icon.classList.toggle('expanded', isCollapsed);
+                        });
+
+                        thinkingCard.appendChild(headerDiv);
+                        thinkingCard.appendChild(thinkingBody);
+                        messagesContainer.appendChild(thinkingCard);
+
+                        thinkingHistory = [];
                     }
 
-                    thinkingDiv.querySelector('.thinking-text').textContent = message || \`\${phase}...\`;
+                    // Add to thinking history
+                    const thinkingMessage = message || \`\${phase}...\`;
+                    thinkingHistory.push(\`[\${new Date().toLocaleTimeString()}] \${phase}: \${thinkingMessage}\`);
+
+                    // Update body with full history
+                    thinkingBody.textContent = thinkingHistory.join('\\n');
+
+                    // Update header text to show latest
+                    thinkingCard.querySelector('.thinking-text').textContent = thinkingMessage;
+
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
                 }
 
                 function clearThinking() {
-                    if (thinkingDiv) {
-                        thinkingDiv.remove();
-                        thinkingDiv = null;
+                    if (thinkingCard) {
+                        // Remove the spinner when thinking is done
+                        const spinner = thinkingCard.querySelector('.thinking-spinner');
+                        if (spinner) {
+                            spinner.remove();
+                        }
+
+                        // Update header to show it's complete
+                        const headerText = thinkingCard.querySelector('.thinking-text');
+                        if (headerText) {
+                            headerText.textContent = 'Thinking complete';
+                        }
+
+                        thinkingCard = null;
+                        thinkingBody = null;
+                        thinkingHistory = [];
                     }
                 }
 
@@ -1494,11 +1791,27 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
                     const headerDiv = document.createElement('div');
                     headerDiv.className = 'tool-card-header';
-                    headerDiv.textContent = 'Tool: ' + tool;
+
+                    const icon = document.createElement('span');
+                    icon.className = 'tool-card-header-icon';
+                    icon.textContent = '▶';
+
+                    const text = document.createElement('span');
+                    text.textContent = 'Tool: ' + tool;
+
+                    headerDiv.appendChild(icon);
+                    headerDiv.appendChild(text);
 
                     const bodyPre = document.createElement('pre');
-                    bodyPre.className = 'tool-card-body';
+                    bodyPre.className = 'tool-card-body collapsed';
                     bodyPre.textContent = JSON.stringify(args, null, 2);
+
+                    // Toggle collapse/expand on header click
+                    headerDiv.addEventListener('click', () => {
+                        const isCollapsed = bodyPre.classList.contains('collapsed');
+                        bodyPre.classList.toggle('collapsed');
+                        icon.classList.toggle('expanded', isCollapsed);
+                    });
 
                     toolCard.appendChild(headerDiv);
                     toolCard.appendChild(bodyPre);
@@ -1514,11 +1827,27 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
                     const headerDiv = document.createElement('div');
                     headerDiv.className = 'tool-card-header';
-                    headerDiv.textContent = 'Result: ' + tool;
+
+                    const icon = document.createElement('span');
+                    icon.className = 'tool-card-header-icon';
+                    icon.textContent = '▶';
+
+                    const text = document.createElement('span');
+                    text.textContent = 'Result: ' + tool;
+
+                    headerDiv.appendChild(icon);
+                    headerDiv.appendChild(text);
 
                     const bodyPre = document.createElement('pre');
-                    bodyPre.className = 'tool-card-body';
+                    bodyPre.className = 'tool-card-body collapsed';
                     bodyPre.textContent = JSON.stringify(result, null, 2);
+
+                    // Toggle collapse/expand on header click
+                    headerDiv.addEventListener('click', () => {
+                        const isCollapsed = bodyPre.classList.contains('collapsed');
+                        bodyPre.classList.toggle('collapsed');
+                        icon.classList.toggle('expanded', isCollapsed);
+                    });
 
                     resultCard.appendChild(headerDiv);
                     resultCard.appendChild(bodyPre);
@@ -1643,6 +1972,154 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
                 function undoPatch(patchId) {
                     vscode.postMessage({ type: 'undoPatch', patchId });
+                }
+
+                function clearAllMessages() {
+                    messagesContainer.innerHTML = '';
+                    hasMessages = false;
+                    emptyState.style.display = 'flex';
+                    currentAssistantMessage = null;
+                    thinkingCard = null;
+                    thinkingBody = null;
+                    thinkingHistory = [];
+                }
+
+                function showSessionsList(sessions) {
+                    // Create modal overlay
+                    const modal = document.createElement('div');
+                    modal.id = 'sessions-modal';
+                    modal.style.cssText = \`
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        background: var(--app-modal-background);
+                        z-index: 1000;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        animation: fadeIn 0.2s ease-in-out;
+                    \`;
+
+                    // Create modal content
+                    const modalContent = document.createElement('div');
+                    modalContent.style.cssText = \`
+                        background: var(--app-input-secondary-background);
+                        border: 1px solid var(--app-input-border);
+                        border-radius: var(--corner-radius-large);
+                        padding: 20px;
+                        max-width: 500px;
+                        width: 90%;
+                        max-height: 70vh;
+                        overflow-y: auto;
+                        box-shadow: 0 24px 40px rgba(0, 0, 0, 0.5);
+                    \`;
+
+                    // Title
+                    const title = document.createElement('h2');
+                    title.textContent = 'Sessions';
+                    title.style.cssText = \`
+                        margin: 0 0 16px 0;
+                        font-size: 18px;
+                        font-weight: 600;
+                        color: var(--app-primary-foreground);
+                    \`;
+                    modalContent.appendChild(title);
+
+                    // Sessions list
+                    if (!sessions || sessions.length === 0) {
+                        const emptyMsg = document.createElement('p');
+                        emptyMsg.textContent = 'No sessions found';
+                        emptyMsg.style.cssText = \`
+                            color: var(--app-secondary-foreground);
+                            font-size: 14px;
+                            margin: 20px 0;
+                        \`;
+                        modalContent.appendChild(emptyMsg);
+                    } else {
+                        sessions.forEach(session => {
+                            const sessionItem = document.createElement('div');
+                            sessionItem.style.cssText = \`
+                                padding: 12px;
+                                margin-bottom: 8px;
+                                background: var(--app-input-background);
+                                border: 1px solid var(--app-input-border);
+                                border-radius: 8px;
+                                cursor: pointer;
+                                transition: background-color 0.2s;
+                            \`;
+                            sessionItem.onmouseenter = () => {
+                                sessionItem.style.background = 'var(--app-ghost-button-hover-background)';
+                            };
+                            sessionItem.onmouseleave = () => {
+                                sessionItem.style.background = 'var(--app-input-background)';
+                            };
+
+                            const sessionTitle = document.createElement('div');
+                            sessionTitle.textContent = session.title || \`Session \${session.id.substring(0, 8)}\`;
+                            sessionTitle.style.cssText = \`
+                                font-weight: 500;
+                                color: var(--app-primary-foreground);
+                                margin-bottom: 4px;
+                            \`;
+
+                            const sessionInfo = document.createElement('div');
+                            const createdDate = new Date(session.created_at).toLocaleString();
+                            sessionInfo.textContent = \`Created: \${createdDate}\`;
+                            sessionInfo.style.cssText = \`
+                                font-size: 12px;
+                                color: var(--app-secondary-foreground);
+                            \`;
+
+                            sessionItem.appendChild(sessionTitle);
+                            sessionItem.appendChild(sessionInfo);
+
+                            sessionItem.addEventListener('click', () => {
+                                vscode.postMessage({ type: 'switchSession', sessionId: session.id });
+                                modal.remove();
+                            });
+
+                            modalContent.appendChild(sessionItem);
+                        });
+                    }
+
+                    // Close button
+                    const closeButton = document.createElement('button');
+                    closeButton.textContent = 'Close';
+                    closeButton.style.cssText = \`
+                        margin-top: 16px;
+                        padding: 8px 16px;
+                        background: var(--app-button-background);
+                        color: var(--app-button-foreground);
+                        border: none;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-size: 14px;
+                        font-weight: 500;
+                        width: 100%;
+                    \`;
+                    closeButton.onmouseenter = () => {
+                        closeButton.style.background = 'var(--app-button-hover-background)';
+                    };
+                    closeButton.onmouseleave = () => {
+                        closeButton.style.background = 'var(--app-button-background)';
+                    };
+                    closeButton.addEventListener('click', () => {
+                        modal.remove();
+                    });
+
+                    modalContent.appendChild(closeButton);
+                    modal.appendChild(modalContent);
+
+                    // Close on overlay click
+                    modal.addEventListener('click', (e) => {
+                        if (e.target === modal) {
+                            modal.remove();
+                        }
+                    });
+
+                    document.body.appendChild(modal);
                 }
 
                 // Focus input on load

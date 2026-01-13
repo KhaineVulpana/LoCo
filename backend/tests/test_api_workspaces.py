@@ -24,13 +24,16 @@ async def create_app(async_session_maker, fake_embedding_manager=None, fake_vect
 
 
 @pytest.mark.asyncio
-async def test_register_and_list_workspaces(async_session_maker):
+async def test_register_and_list_workspaces(async_session_maker, tmp_path):
     app = await create_app(async_session_maker)
+    workspace_dir = tmp_path / "LoCo"
+    workspace_dir.mkdir()
+    workspace_path = str(workspace_dir)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url='http://test') as client:
         response = await client.post('/v1/workspaces/register', json={
-            'path': 'C:/Projects/LoCo',
+            'path': workspace_path,
             'name': 'LoCo'
         })
         assert response.status_code == 200
@@ -42,7 +45,7 @@ async def test_register_and_list_workspaces(async_session_maker):
 
         get_response = await client.get(f"/v1/workspaces/{workspace['id']}")
         assert get_response.status_code == 200
-        assert get_response.json()['path'] == 'C:/Projects/LoCo'
+        assert get_response.json()['path'] == workspace_path
 
 
 @pytest.mark.asyncio
@@ -119,12 +122,14 @@ async def test_workspace_policy_round_trip(async_session_maker):
         assert policy['allowed_write_globs'] == ['**/*']
         assert policy['blocked_globs'] == ['.git/**', 'node_modules/**']
         assert policy['command_approval'] == 'prompt'
+        assert policy['auto_approve_tools'] == []
 
         update_payload = {
             'allowed_write_globs': ['src/**', 'tests/**'],
             'blocked_commands': ['rm -rf', 'curl'],
             'network_enabled': True,
-            'auto_approve_tests': True
+            'auto_approve_tests': True,
+            'auto_approve_tools': ['read_file', 'list_files']
         }
 
         update_policy = await client.put(
@@ -137,8 +142,10 @@ async def test_workspace_policy_round_trip(async_session_maker):
         assert updated['blocked_commands'] == ['rm -rf', 'curl']
         assert updated['network_enabled'] is True
         assert updated['auto_approve_tests'] is True
+        assert updated['auto_approve_tools'] == ['read_file', 'list_files']
 
         get_policy_again = await client.get(f'/v1/workspaces/{workspace_id}/policy')
         assert get_policy_again.status_code == 200
         policy_again = get_policy_again.json()
         assert policy_again['allowed_write_globs'] == ['src/**', 'tests/**']
+        assert policy_again['auto_approve_tools'] == ['read_file', 'list_files']

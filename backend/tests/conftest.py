@@ -1,10 +1,12 @@
 import builtins
+import fnmatch
+import os
 import sys
 import types
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, get_args, get_origin
 
 import pytest
 import pytest_asyncio
@@ -36,8 +38,56 @@ except ModuleNotFoundError:
     sys.modules["structlog"] = structlog_module
 
 try:
+    import pydantic_settings  # noqa: F401
+except Exception:
+    pydantic_settings_module = types.ModuleType("pydantic_settings")
+
+    def SettingsConfigDict(**kwargs):
+        return kwargs
+
+    def _cast_env_value(value: str, target_type: Any) -> Any:
+        origin = get_origin(target_type)
+        if origin is None:
+            cast_type = target_type
+        else:
+            args = [arg for arg in get_args(target_type) if arg is not type(None)]
+            cast_type = args[0] if len(args) == 1 else target_type
+
+        if cast_type is bool:
+            return value.strip().lower() in ("1", "true", "yes", "on")
+        if cast_type is int:
+            try:
+                return int(value)
+            except ValueError:
+                return value
+        if cast_type is float:
+            try:
+                return float(value)
+            except ValueError:
+                return value
+        return value
+
+    class BaseSettings:
+        def __init__(self, **kwargs):
+            annotations = getattr(self, "__annotations__", {})
+            for field, field_type in annotations.items():
+                if field in kwargs:
+                    value = kwargs[field]
+                else:
+                    env_value = os.getenv(field)
+                    if env_value is not None:
+                        value = _cast_env_value(env_value, field_type)
+                    else:
+                        value = getattr(self.__class__, field, None)
+                setattr(self, field, value)
+
+    pydantic_settings_module.BaseSettings = BaseSettings
+    pydantic_settings_module.SettingsConfigDict = SettingsConfigDict
+    sys.modules["pydantic_settings"] = pydantic_settings_module
+
+try:
     import sentence_transformers  # noqa: F401
-except ModuleNotFoundError:
+except Exception:
     import numpy as np
 
     st_module = types.ModuleType("sentence_transformers")
@@ -93,6 +143,52 @@ except ModuleNotFoundError:
 
     aiofiles_module.open = open
     sys.modules["aiofiles"] = aiofiles_module
+
+try:
+    import pathspec  # noqa: F401
+except Exception:
+    pathspec_module = types.ModuleType("pathspec")
+
+    class PathSpec:
+        def __init__(self, patterns: List[str]):
+            self._patterns = patterns
+
+        @classmethod
+        def from_lines(cls, _pattern_type: str, lines: List[str]):
+            patterns = []
+            for line in lines:
+                if line is None:
+                    continue
+                text = str(line).strip()
+                if not text or text.startswith("#"):
+                    continue
+                patterns.append(text)
+            return cls(patterns)
+
+        def match_file(self, file_path: str) -> bool:
+            normalized = str(file_path).replace("\\", "/").lstrip("./")
+            for pattern in self._patterns:
+                negated = pattern.startswith("!")
+                pat = pattern[1:] if negated else pattern
+                if not pat:
+                    continue
+                if self._matches(pat, normalized):
+                    return not negated
+            return False
+
+        def _matches(self, pattern: str, path: str) -> bool:
+            if pattern.startswith("/"):
+                pattern = pattern.lstrip("/")
+                return fnmatch.fnmatch(path, pattern)
+            if pattern.endswith("/"):
+                base = pattern[:-1]
+                return path == base or path.startswith(pattern)
+            if "/" not in pattern:
+                return fnmatch.fnmatch(path.split("/")[-1], pattern)
+            return fnmatch.fnmatch(path, pattern)
+
+    pathspec_module.PathSpec = PathSpec
+    sys.modules["pathspec"] = pathspec_module
 
 try:
     import qdrant_client  # noqa: F401

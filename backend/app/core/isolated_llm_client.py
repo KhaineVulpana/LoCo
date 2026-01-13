@@ -60,6 +60,7 @@ class IsolatedLLMClient:
         messages: List[Dict[str, str]],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        response_format: Optional[str] = None,
         **kwargs
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -73,6 +74,7 @@ class IsolatedLLMClient:
             messages: Conversation history
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature (overrides default)
+            response_format: Optional response format hint (e.g., "json")
             **kwargs: Additional provider-specific args
 
         Yields:
@@ -86,7 +88,8 @@ class IsolatedLLMClient:
                 async for chunk in self.client.generate_stream(
                     messages=messages,
                     max_tokens=max_tokens,
-                    temperature=temperature or self.temperature
+                    temperature=temperature or self.temperature,
+                    response_format=response_format
                 ):
                     yield chunk
 

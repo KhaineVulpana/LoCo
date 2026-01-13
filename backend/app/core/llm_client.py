@@ -82,7 +82,8 @@ class LLMClient:
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]] = None,
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None
+        max_tokens: Optional[int] = None,
+        response_format: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Generate streaming response from LLM
@@ -92,18 +93,19 @@ class LLMClient:
             tools: Optional tool definitions for function calling
             temperature: Sampling temperature
             max_tokens: Maximum tokens to generate
+            response_format: Optional response format hint (e.g., "json")
 
         Yields:
             Chunks of the response
         """
         if self.provider == "ollama":
-            async for chunk in self._ollama_stream(messages, tools, temperature, max_tokens):
+            async for chunk in self._ollama_stream(messages, tools, temperature, max_tokens, response_format):
                 yield chunk
         elif self.provider == "vllm":
-            async for chunk in self._vllm_stream(messages, tools, temperature, max_tokens):
+            async for chunk in self._vllm_stream(messages, tools, temperature, max_tokens, response_format):
                 yield chunk
         elif self.provider == "llamacpp":
-            async for chunk in self._llamacpp_stream(messages, tools, temperature, max_tokens):
+            async for chunk in self._llamacpp_stream(messages, tools, temperature, max_tokens, response_format):
                 yield chunk
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
@@ -113,7 +115,8 @@ class LLMClient:
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]],
         temperature: float,
-        max_tokens: Optional[int]
+        max_tokens: Optional[int],
+        response_format: Optional[str]
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream from Ollama API"""
         url = f"{self.base_url}/api/chat"
@@ -129,6 +132,8 @@ class LLMClient:
 
         if max_tokens:
             payload["options"]["num_predict"] = max_tokens
+        if response_format:
+            payload["format"] = response_format
 
         # Ollama supports tools in newer versions
         if tools:
@@ -223,7 +228,8 @@ class LLMClient:
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]],
         temperature: float,
-        max_tokens: Optional[int]
+        max_tokens: Optional[int],
+        response_format: Optional[str]
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream from vLLM OpenAI-compatible API"""
         url = f"{self.base_url}/v1/chat/completions"
@@ -306,7 +312,8 @@ class LLMClient:
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]],
         temperature: float,
-        max_tokens: Optional[int]
+        max_tokens: Optional[int],
+        response_format: Optional[str]
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream from llama.cpp server"""
         url = f"{self.base_url}/v1/chat/completions"

@@ -76,6 +76,7 @@ class WorkspacePolicy(BaseModel):
     network_enabled: bool
     auto_approve_simple_changes: bool
     auto_approve_tests: bool
+    auto_approve_tools: List[str]
 
 
 class WorkspacePolicyUpdate(BaseModel):
@@ -88,6 +89,7 @@ class WorkspacePolicyUpdate(BaseModel):
     network_enabled: Optional[bool] = None
     auto_approve_simple_changes: Optional[bool] = None
     auto_approve_tests: Optional[bool] = None
+    auto_approve_tools: Optional[List[str]] = None
 
 
 DEFAULT_POLICY: Dict[str, Any] = {
@@ -99,7 +101,8 @@ DEFAULT_POLICY: Dict[str, Any] = {
     "blocked_commands": [],
     "network_enabled": False,
     "auto_approve_simple_changes": False,
-    "auto_approve_tests": False
+    "auto_approve_tests": False,
+    "auto_approve_tools": []
 }
 
 
@@ -325,7 +328,8 @@ def _policy_from_row(row: Optional[Any]) -> Dict[str, Any]:
         blocked_commands,
         network_enabled,
         auto_simple,
-        auto_tests
+        auto_tests,
+        auto_tools
     ) = row
 
     return {
@@ -337,7 +341,8 @@ def _policy_from_row(row: Optional[Any]) -> Dict[str, Any]:
         "blocked_commands": _parse_list(blocked_commands, DEFAULT_POLICY["blocked_commands"]),
         "network_enabled": bool(network_enabled),
         "auto_approve_simple_changes": bool(auto_simple),
-        "auto_approve_tests": bool(auto_tests)
+        "auto_approve_tests": bool(auto_tests),
+        "auto_approve_tools": _parse_list(auto_tools, DEFAULT_POLICY["auto_approve_tools"])
     }
 
 
@@ -566,7 +571,8 @@ async def get_workspace_policy(
                blocked_commands,
                network_enabled,
                auto_approve_simple_changes,
-               auto_approve_tests
+               auto_approve_tests,
+               auto_approve_tools
         FROM workspace_policies
         WHERE workspace_id = :workspace_id
     """), {"workspace_id": workspace_id})
@@ -597,7 +603,8 @@ async def update_workspace_policy(
                blocked_commands,
                network_enabled,
                auto_approve_simple_changes,
-               auto_approve_tests
+               auto_approve_tests,
+               auto_approve_tools
         FROM workspace_policies
         WHERE workspace_id = :workspace_id
     """), {"workspace_id": workspace_id})
@@ -629,6 +636,7 @@ async def update_workspace_policy(
             network_enabled = :network_enabled,
             auto_approve_simple_changes = :auto_approve_simple_changes,
             auto_approve_tests = :auto_approve_tests,
+            auto_approve_tools = :auto_approve_tools,
             updated_at = :updated_at
         WHERE workspace_id = :workspace_id
     """), {
@@ -642,6 +650,7 @@ async def update_workspace_policy(
         "network_enabled": 1 if merged["network_enabled"] else 0,
         "auto_approve_simple_changes": 1 if merged["auto_approve_simple_changes"] else 0,
         "auto_approve_tests": 1 if merged["auto_approve_tests"] else 0,
+        "auto_approve_tools": json.dumps(merged["auto_approve_tools"]),
         "updated_at": now
     })
 

@@ -187,3 +187,35 @@ async def delete_session(
     await db.commit()
 
     return {"success": True}
+
+
+class MessageResponse(BaseModel):
+    role: str
+    content: str
+    created_at: str
+
+
+@router.get("/{session_id}/messages", response_model=List[MessageResponse])
+async def get_session_messages(
+    session_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get messages for a session"""
+    query = text("""
+        SELECT role, content, created_at
+        FROM session_messages
+        WHERE session_id = :session_id
+        ORDER BY created_at ASC
+    """)
+
+    result = await db.execute(query, {"session_id": session_id})
+    rows = result.fetchall()
+
+    return [
+        MessageResponse(
+            role=row[0],
+            content=row[1],
+            created_at=row[2]
+        )
+        for row in rows
+    ]

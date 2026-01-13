@@ -4,14 +4,20 @@ from app.agent.agent import Agent
 def test_format_user_message_with_context(tmp_path):
     agent = Agent(workspace_path=str(tmp_path), frontend_id='vscode', enable_ace=False)
     context = {
-        'active_file': {
+        'active_editor': {
             'file_path': 'main.py',
-            'selection': {'start': 1, 'end': 3}
+            'selection': {
+                'start': {'line': 1, 'character': 0},
+                'end': {'line': 3, 'character': 0}
+            }
         },
         'diagnostics': [
             {'file_path': 'main.py', 'line': 10, 'message': 'Syntax error'}
         ],
-        'open_editors': ['main.py', 'utils.py']
+        'open_editors': [
+            {'file_path': 'main.py', 'is_dirty': False, 'visible': True},
+            {'file_path': 'utils.py', 'is_dirty': False, 'visible': True}
+        ]
     }
 
     formatted = agent._format_user_message('Fix this', context)

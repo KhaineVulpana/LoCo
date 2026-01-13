@@ -31,3 +31,12 @@ Policy overrides (syncs to server policy)
 - locoAgent.policy.networkEnabled: allow network commands.
 - locoAgent.policy.autoApproveSimpleChanges: auto-approve simple changes.
 - locoAgent.policy.autoApproveTests: auto-approve test commands.
+- locoAgent.policy.autoApproveTools.readFile: auto-approve read_file tool.
+- locoAgent.policy.autoApproveTools.writeFile: auto-approve write_file tool.
+- locoAgent.policy.autoApproveTools.listFiles: auto-approve list_files tool.
+- locoAgent.policy.autoApproveTools.applyPatch: auto-approve apply_patch tool.
+- locoAgent.policy.autoApproveTools.proposePatch: auto-approve propose_patch tool.
+- locoAgent.policy.autoApproveTools.proposeDiff: auto-approve propose_diff tool.
+- locoAgent.policy.autoApproveTools.reportPlan: auto-approve report_plan tool.
+- locoAgent.policy.autoApproveTools.runCommand: auto-approve run_command tool.
+- locoAgent.policy.autoApproveTools.runTests: auto-approve run_tests tool.

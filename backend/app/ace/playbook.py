@@ -281,6 +281,42 @@ class Playbook:
             logger.info("harmful_bullets_pruned", count=len(to_remove))
         return to_remove
 
+    def _serialize_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Ensure metadata dict contains only JSON-serializable values
+
+        Args:
+            metadata: Metadata dictionary
+
+        Returns:
+            JSON-serializable metadata dictionary
+        """
+        import numpy as np
+
+        serialized = {}
+        for key, value in metadata.items():
+            # Convert numpy types to Python native types
+            if isinstance(value, (np.integer, np.int64, np.int32)):
+                serialized[key] = int(value)
+            elif isinstance(value, (np.floating, np.float64, np.float32)):
+                serialized[key] = float(value)
+            elif isinstance(value, np.ndarray):
+                serialized[key] = value.tolist()
+            elif isinstance(value, dict):
+                serialized[key] = self._serialize_metadata(value)
+            elif isinstance(value, (list, tuple)):
+                serialized[key] = [
+                    self._serialize_metadata({0: item})[0] if isinstance(item, dict)
+                    else float(item) if isinstance(item, (np.floating, np.float64, np.float32))
+                    else int(item) if isinstance(item, (np.integer, np.int64, np.int32))
+                    else item
+                    for item in value
+                ]
+            else:
+                serialized[key] = value
+
+        return serialized
+
     def save_to_vector_db(
         self,
         vector_store,
@@ -311,10 +347,19 @@ class Playbook:
         bullet_payloads = []
 
         for bullet_id, bullet in self.bullets.items():
-            bullet_ids.append(bullet_id)
+            bullet_ids.append(str(bullet_id))
             bullet_contents.append(bullet.content)
-            payload = bullet.to_dict()
-            payload["bullet_id"] = bullet.id
+
+            # Ensure all payload values are JSON-serializable
+            payload = {
+                "id": str(bullet.id),
+                "section": str(bullet.section),
+                "content": str(bullet.content),
+                "helpful_count": int(bullet.helpful_count),
+                "harmful_count": int(bullet.harmful_count),
+                "metadata": self._serialize_metadata(bullet.metadata),
+                "bullet_id": str(bullet.id)
+            }
             bullet_payloads.append(payload)
 
         try:
@@ -327,9 +372,12 @@ class Playbook:
 
         points = []
         for bullet_id, embedding, payload in zip(bullet_ids, embeddings, bullet_payloads):
+            # Ensure vector is a list of native Python floats
+            vector_list = [float(x) for x in embedding.tolist()]
+
             points.append(PointStruct(
-                id=bullet_id,
-                vector=embedding.tolist(),
+                id=str(bullet_id),
+                vector=vector_list,
                 payload=payload
             ))
 
@@ -379,12 +427,23 @@ class Playbook:
                         error=str(e))
             return False
 
-        payload = bullet.to_dict()
-        payload["bullet_id"] = bullet.id
+        # Ensure all payload values are JSON-serializable
+        payload = {
+            "id": str(bullet.id),
+            "section": str(bullet.section),
+            "content": str(bullet.content),
+            "helpful_count": int(bullet.helpful_count),
+            "harmful_count": int(bullet.harmful_count),
+            "metadata": self._serialize_metadata(bullet.metadata),
+            "bullet_id": str(bullet.id)
+        }
+
+        # Ensure vector is a list of native Python floats
+        vector_list = [float(x) for x in embedding.tolist()]
 
         point = PointStruct(
-            id=bullet_id,
-            vector=embedding.tolist(),
+            id=str(bullet_id),
+            vector=vector_list,
             payload=payload
         )
 

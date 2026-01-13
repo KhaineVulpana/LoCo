@@ -8,6 +8,7 @@ import structlog
 
 from app.core.llm_client import LLMClient
 from app.ace.playbook import Playbook
+from app.ace.json_utils import extract_json_object
 from app.core.embedding_manager import EmbeddingManager
 from app.core.vector_store import VectorStore
 
@@ -67,24 +68,30 @@ class Curator:
         response_text = ""
         async for chunk in self.llm_client.generate_stream(
             messages=messages,
-            temperature=0.7
+            temperature=0.7,
+            response_format="json"
         ):
             if chunk["type"] == "content":
                 response_text += chunk["content"]
 
         # Parse delta operations
-        try:
-            curation_result = json.loads(response_text)
-            operations = curation_result.get("operations", [])
-
-            logger.info("curation_complete",
-                       operations_count=len(operations))
-
-            return operations
-
-        except json.JSONDecodeError as e:
-            logger.error("curation_json_parse_error", error=str(e))
+        curation_result = extract_json_object(response_text)
+        if not curation_result:
+            preview = response_text[:200].replace("\n", "\\n")
+            logger.error(
+                "curation_json_parse_error",
+                error="invalid_json",
+                response_length=len(response_text),
+                response_preview=preview
+            )
             return []
+
+        operations = curation_result.get("operations", [])
+
+        logger.info("curation_complete",
+                   operations_count=len(operations))
+
+        return operations
 
     def apply_delta(
         self,
@@ -175,8 +182,7 @@ Identify ONLY NEW insights, strategies, or corrections that are MISSING from the
 3. Focus on quality over quantity
 4. For code-related insights, include actual code patterns or API schemas
 
-**Output Format (JSON):**
-```json
+**Output Format (JSON only, no markdown or code fences):**
 {{
     "reasoning": "Your analysis of what needs to be added",
     "operations": [
@@ -187,7 +193,6 @@ Identify ONLY NEW insights, strategies, or corrections that are MISSING from the
         }}
     ]
 }}
-```
 
 **Available Sections:**
 - strategies_and_hard_rules: General strategies and important rules
@@ -218,4 +223,4 @@ Focus on:
 - Clear corrections to errors
 - Reusable patterns and principles
 
-Output ONLY valid JSON with the specified structure."""
+Output ONLY valid JSON with the specified structure. Do not include markdown or code fences."""

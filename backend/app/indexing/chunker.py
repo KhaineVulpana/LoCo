@@ -10,12 +10,13 @@ import structlog
 logger = structlog.get_logger()
 
 try:
-    from tree_sitter import Parser
+    from tree_sitter import Parser, Language
     import tree_sitter_python
     import tree_sitter_javascript
     import tree_sitter_typescript
 except Exception:
     Parser = None
+    Language = None
     tree_sitter_python = None
     tree_sitter_javascript = None
     tree_sitter_typescript = None
@@ -247,9 +248,30 @@ class ASTChunker:
             return None
 
         parser = Parser()
-        parser.set_language(lang)
+        if not self._set_parser_language(parser, lang, key):
+            return None
         self.parsers[key] = parser
         return parser
+
+    def _set_parser_language(self, parser: Parser, lang, key: str) -> bool:
+        try:
+            if hasattr(parser, "set_language"):
+                parser.set_language(lang)
+                return True
+            if hasattr(parser, "language"):
+                parser.language = self._wrap_language(lang)
+                return True
+        except Exception as e:
+            logger.warning("tree_sitter_language_set_failed", language=key, error=str(e))
+        return False
+
+    def _wrap_language(self, lang):
+        if Language and not isinstance(lang, Language):
+            try:
+                return Language(lang)
+            except Exception:
+                return lang
+        return lang
 
     def _load_language(self, key: str):
         try:

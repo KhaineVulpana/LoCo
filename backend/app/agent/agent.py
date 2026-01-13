@@ -18,7 +18,7 @@ from app.core.vector_store import VectorStore
 from app.core.model_manager import ModelManager
 from app.retrieval.retriever import Retriever
 from app.core.config import settings
-from app.tools.base import ToolRegistry
+from app.tools.base import Tool, ToolRegistry
 from app.tools import ReadFileTool, WriteFileTool, ListFilesTool, ApplyPatchTool, RunCommandTool, RunTestsTool
 from app.tools import ReportPlanTool, ProposePatchTool, ProposeDiffTool
 from app.ace import Playbook, Reflector, Curator
@@ -193,6 +193,7 @@ class Agent:
             "blocked_commands": [],
             "auto_approve_tests": False,
             "auto_approve_simple_changes": False,
+            "auto_approve_tools": [],
             "allowed_read_globs": ["**/*"],
             "allowed_write_globs": ["**/*"],
             "blocked_globs": [".git/**", "node_modules/**"],
@@ -209,7 +210,7 @@ class Agent:
                 SELECT command_approval, allowed_commands, blocked_commands,
                        auto_approve_tests, auto_approve_simple_changes,
                        allowed_read_globs, allowed_write_globs, blocked_globs,
-                       network_enabled
+                       network_enabled, auto_approve_tools
                 FROM workspace_policies
                 WHERE workspace_id = :workspace_id
             """), {"workspace_id": self.workspace_id})
@@ -227,7 +228,8 @@ class Agent:
             allowed_read_globs,
             allowed_write_globs,
             blocked_globs,
-            network_enabled
+            network_enabled,
+            auto_tools
         ) = row
 
         def _parse_list(value: Optional[str], fallback: List[str]) -> List[str]:
@@ -245,6 +247,7 @@ class Agent:
             "blocked_commands": _parse_list(blocked_commands, []),
             "auto_approve_tests": bool(auto_tests),
             "auto_approve_simple_changes": bool(auto_simple),
+            "auto_approve_tools": _parse_list(auto_tools, default_policy["auto_approve_tools"]),
             "allowed_read_globs": _parse_list(allowed_read_globs, default_policy["allowed_read_globs"]),
             "allowed_write_globs": _parse_list(allowed_write_globs, default_policy["allowed_write_globs"]),
             "blocked_globs": _parse_list(blocked_globs, default_policy["blocked_globs"]),
@@ -319,7 +322,20 @@ class Agent:
 
         return True, None
 
+    def _is_tool_auto_approved(self, tool_name: str, policy: Dict[str, Any]) -> bool:
+        auto_tools = policy.get("auto_approve_tools") or []
+        return tool_name in auto_tools
+
+    def _requires_tool_approval(self, tool_name: str, policy: Dict[str, Any], tool: Optional[Tool]) -> bool:
+        if self._is_tool_auto_approved(tool_name, policy):
+            return False
+        if tool is None:
+            return True
+        return bool(tool.requires_approval)
+
     def _requires_command_approval(self, tool_name: str, policy: Dict[str, Any]) -> bool:
+        if self._is_tool_auto_approved(tool_name, policy):
+            return False
         command_approval = (policy.get("command_approval") or "prompt").lower()
         if command_approval in ("auto", "none"):
             return False
@@ -742,26 +758,51 @@ class Agent:
                                 "denied_by_policy": True
                             }
                         else:
-                            result = await self.tool_registry.execute_tool(tool_name, tool_args)
-                            if tool_name == "list_files":
+                            approval_required = self._requires_tool_approval(tool_name, policy, tool)
+                            if approval_required:
+                                request_id, _future = self._create_approval_request()
+                                prompt = tool.approval_prompt(tool_args) if tool else None
+                                yield {
+                                    "type": "tool.request_approval",
+                                    "request_id": request_id,
+                                    "tool": tool_name,
+                                    "arguments": tool_args,
+                                    "message": prompt
+                                }
+                                approved = await self._await_approval(request_id)
+                                if not approved:
+                                    result = {
+                                        "success": False,
+                                        "error": "Tool execution denied",
+                                        "requires_approval": True
+                                    }
+                                else:
+                                    result = await self.tool_registry.execute_tool(tool_name, tool_args)
+                            else:
+                                result = await self.tool_registry.execute_tool(tool_name, tool_args)
+                            if tool_name == "list_files" and result.get("success"):
                                 result = self._filter_list_result(result, policy)
-                    elif tool and tool.requires_approval:
-                        request_id, _future = self._create_approval_request()
-                        prompt = tool.approval_prompt(tool_args)
-                        yield {
-                            "type": "tool.request_approval",
-                            "request_id": request_id,
-                            "tool": tool_name,
-                            "arguments": tool_args,
-                            "message": prompt
-                        }
-                        approved = await self._await_approval(request_id)
-                        if not approved:
-                            result = {
-                                "success": False,
-                                "error": "Tool execution denied",
-                                "requires_approval": True
+                    elif tool:
+                        approval_required = self._requires_tool_approval(tool_name, policy, tool)
+                        if approval_required:
+                            request_id, _future = self._create_approval_request()
+                            prompt = tool.approval_prompt(tool_args)
+                            yield {
+                                "type": "tool.request_approval",
+                                "request_id": request_id,
+                                "tool": tool_name,
+                                "arguments": tool_args,
+                                "message": prompt
                             }
+                            approved = await self._await_approval(request_id)
+                            if not approved:
+                                result = {
+                                    "success": False,
+                                    "error": "Tool execution denied",
+                                    "requires_approval": True
+                                }
+                            else:
+                                result = await self.tool_registry.execute_tool(tool_name, tool_args)
                         else:
                             result = await self.tool_registry.execute_tool(tool_name, tool_args)
                     else:
@@ -876,18 +917,28 @@ class Agent:
         """Format user message with context"""
         if not context:
             return message
+        if not isinstance(context, dict):
+            return message
 
-        command = context.get("command") if isinstance(context, dict) else None
+        command = context.get("command")
         message = self._apply_command(command, message)
 
         context_parts = [message]
 
         # Add active file context
-        if context.get("active_file"):
-            context_parts.append(f"\n\nActive file: {context['active_file'].get('file_path')}")
-            if context['active_file'].get('selection'):
-                sel = context['active_file']['selection']
-                context_parts.append(f"Selected lines {sel.get('start')}-{sel.get('end')}")
+        active = context.get("active_file") or context.get("active_editor")
+        if isinstance(active, dict):
+            file_path = active.get("file_path")
+            if file_path:
+                context_parts.append(f"\n\nActive file: {file_path}")
+            sel = active.get("selection")
+            if isinstance(sel, dict):
+                start = sel.get("start")
+                end = sel.get("end")
+                start_line = start.get("line") if isinstance(start, dict) else start
+                end_line = end.get("line") if isinstance(end, dict) else end
+                if start_line is not None and end_line is not None:
+                    context_parts.append(f"Selected lines {start_line}-{end_line}")
 
         # Add diagnostics/errors
         if context.get("diagnostics"):
@@ -902,8 +953,19 @@ class Agent:
         # Add open editors
         if context.get("open_editors"):
             editors = context['open_editors']
-            if editors:
-                context_parts.append(f"\n\nOpen files: {', '.join(editors)}")
+            if editors and isinstance(editors, list):
+                editor_paths = []
+                for editor in editors:
+                    if isinstance(editor, str):
+                        editor_paths.append(editor)
+                    elif isinstance(editor, dict):
+                        path = editor.get("file_path") or editor.get("path") or editor.get("name")
+                        if path:
+                            editor_paths.append(path)
+                    else:
+                        editor_paths.append(str(editor))
+                if editor_paths:
+                    context_parts.append(f"\n\nOpen files: {', '.join(editor_paths)}")
 
         # Add @mention context
         if context.get("mentions"):
@@ -911,6 +973,9 @@ class Agent:
             if mentions:
                 context_parts.append("\n\nMentioned context:")
                 for mention in mentions:
+                    if not isinstance(mention, dict):
+                        context_parts.append(f"\n@{mention}")
+                        continue
                     mention_type = mention.get("type")
                     if mention_type == "file":
                         path = mention.get("path", "unknown")
@@ -918,6 +983,8 @@ class Agent:
                         truncated = mention.get("truncated", False)
                         context_parts.append(f"\n@{path}")
                         if content:
+                            if not isinstance(content, str):
+                                content = json.dumps(content, ensure_ascii=True)
                             context_parts.append("```")
                             context_parts.append(content)
                             if truncated:

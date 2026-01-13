@@ -20,3 +20,4 @@ Approval flow
 Auto-approve knobs
 - auto_approve_tests: allow running test commands without prompting.
 - auto_approve_simple_changes: allow trivial diffs when policy allows.
+- auto_approve_tools: allow specific tools without prompting.

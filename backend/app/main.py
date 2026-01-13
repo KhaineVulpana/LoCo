@@ -4,7 +4,7 @@ LoCo Agent Local - Main Server Entry Point
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 import asyncio
 import structlog
 import logging
@@ -64,6 +64,17 @@ logger = structlog.get_logger()
 # Store active agents per session
 active_agents = {}
 active_agents_lock = asyncio.Lock()
+
+
+@contextmanager
+def _suppress_boot_indexing_logs():
+    root_logger = logging.getLogger()
+    previous_level = root_logger.level
+    root_logger.setLevel(logging.WARNING)
+    try:
+        yield
+    finally:
+        root_logger.setLevel(previous_level)
 
 
 async def _resolve_workspace_path_for_session(
@@ -172,38 +183,39 @@ async def lifespan(app: FastAPI):
                                 frontend_id=frontend_id,
                                 error=str(e))
 
-            try:
-                training_status = await ensure_3d_gen_training_data(
-                    embedding_manager=runtime.embedding_manager,
-                    vector_store=runtime.vector_store
-                )
-                logger.info("training_data_loader_complete", status=training_status)
-            except Exception as e:
-                logger.error("training_data_loader_failed", error=str(e))
-
-            try:
-                vscode_docs_status = await ensure_vscode_docs(
-                    embedding_manager=runtime.embedding_manager,
-                    vector_store=runtime.vector_store
-                )
-                logger.info("vscode_docs_loader_complete", status=vscode_docs_status)
-            except Exception as e:
-                logger.error("vscode_docs_loader_failed", error=str(e))
-
-            try:
-                if settings.REMOTE_DOCS_ENABLED:
-                    remote_docs_status = await ensure_remote_docs(
-                        refresh_hours=settings.REMOTE_DOCS_REFRESH_HOURS
+            with _suppress_boot_indexing_logs():
+                try:
+                    training_status = await ensure_3d_gen_training_data(
+                        embedding_manager=runtime.embedding_manager,
+                        vector_store=runtime.vector_store
                     )
-                    logger.info("remote_docs_loader_complete", status=remote_docs_status)
+                    logger.info("training_data_loader_complete", status=training_status)
+                except Exception as e:
+                    logger.error("training_data_loader_failed", error=str(e))
 
-                shared_knowledge_status = await ensure_shared_knowledge(
-                    embedding_manager=runtime.embedding_manager,
-                    vector_store=runtime.vector_store
-                )
-                logger.info("shared_knowledge_loader_complete", status=shared_knowledge_status)
-            except Exception as e:
-                logger.error("shared_knowledge_loader_failed", error=str(e))
+                try:
+                    vscode_docs_status = await ensure_vscode_docs(
+                        embedding_manager=runtime.embedding_manager,
+                        vector_store=runtime.vector_store
+                    )
+                    logger.info("vscode_docs_loader_complete", status=vscode_docs_status)
+                except Exception as e:
+                    logger.error("vscode_docs_loader_failed", error=str(e))
+
+                try:
+                    if settings.REMOTE_DOCS_ENABLED:
+                        remote_docs_status = await ensure_remote_docs(
+                            refresh_hours=settings.REMOTE_DOCS_REFRESH_HOURS
+                        )
+                        logger.info("remote_docs_loader_complete", status=remote_docs_status)
+
+                    shared_knowledge_status = await ensure_shared_knowledge(
+                        embedding_manager=runtime.embedding_manager,
+                        vector_store=runtime.vector_store
+                    )
+                    logger.info("shared_knowledge_loader_complete", status=shared_knowledge_status)
+                except Exception as e:
+                    logger.error("shared_knowledge_loader_failed", error=str(e))
         except Exception as e:
             logger.error("rag_initialization_failed",
                         error=str(e),

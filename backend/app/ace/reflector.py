@@ -7,6 +7,7 @@ from typing import Dict, List, Any, Optional, Union
 import structlog
 
 from app.core.llm_client import LLMClient
+from app.ace.json_utils import extract_json_object
 
 logger = structlog.get_logger()
 
@@ -69,14 +70,15 @@ class Reflector:
             response_text = ""
             async for chunk in self.llm_client.generate_stream(
                 messages=messages,
-                temperature=0.7
+                temperature=0.7,
+                response_format="json"
             ):
                 if chunk["type"] == "content":
                     response_text += chunk["content"]
 
             # Parse JSON response
-            try:
-                reflection = json.loads(response_text)
+            reflection = extract_json_object(response_text)
+            if reflection:
 
                 # Validate reflection has required fields
                 required_fields = [
@@ -91,8 +93,14 @@ class Reflector:
                     logger.info("reflection_complete", rounds=round_num + 1)
                     break
 
-            except json.JSONDecodeError:
-                logger.warning("reflection_json_parse_error", round=round_num + 1)
+            else:
+                preview = response_text[:200].replace("\n", "\\n")
+                logger.warning(
+                    "reflection_json_parse_error",
+                    round=round_num + 1,
+                    response_length=len(response_text),
+                    response_preview=preview
+                )
 
             # If refinement needed, add feedback
             if round_num < max_rounds - 1:
@@ -132,8 +140,7 @@ class Reflector:
 \n**Your Task:**
 Provide a detailed reflection analyzing what went wrong (or what went right).
 
-**Output Format (JSON):**
-```json
+**Output Format (JSON only, no markdown or code fences):**
 {
     "reasoning": "Your detailed analysis of the execution",
     "error_identification": "What specifically went wrong",
@@ -145,9 +152,8 @@ Provide a detailed reflection analyzing what went wrong (or what went right).
         {"bullet_id": "api-00002", "tag": "harmful"}
     ]
 }
-```
 
-Tags: "helpful", "harmful", or "neutral"
+Valid tags: "helpful", "harmful", or "neutral". Return only the JSON object.
 """)
 
         return "".join(prompt_parts)

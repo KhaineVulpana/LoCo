@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS workspace_policies (
   network_enabled INTEGER NOT NULL DEFAULT 0,
   auto_approve_simple_changes INTEGER NOT NULL DEFAULT 0,
   auto_approve_tests INTEGER NOT NULL DEFAULT 0,
+  auto_approve_tools TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE

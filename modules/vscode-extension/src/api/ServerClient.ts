@@ -353,6 +353,126 @@ export class ServerClient {
         return data.id;
     }
 
+    async listSessions(): Promise<any[]> {
+        if (!this.serverUrl || !this.workspaceId) {
+            return [];
+        }
+
+        const headers: Record<string, string> = {};
+        if (this.authToken) {
+            headers['Authorization'] = `Bearer ${this.authToken}`;
+        }
+
+        const url = new URL(`${this.serverUrl}/v1/sessions`);
+        url.searchParams.set('workspace_id', this.workspaceId);
+
+        const response = await fetch(url.toString(), { headers });
+
+        if (!response.ok) {
+            throw new Error(`Failed to list sessions: ${response.statusText}`);
+        }
+
+        return await response.json() as any[];
+    }
+
+    async switchToSession(sessionId: string): Promise<void> {
+        if (!this.serverUrl) {
+            throw new Error('Not connected to server');
+        }
+
+        // Disconnect current websocket
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+
+        // Update session ID
+        this.sessionId = sessionId;
+
+        // Reconnect with new session
+        const wsUrl = this.serverUrl.replace('http', 'ws') + `/v1/sessions/${this.sessionId}/stream`;
+        console.log(`Switching to session ${sessionId}, connecting to ${wsUrl}...`);
+
+        return new Promise((resolve, reject) => {
+            const headers: Record<string, string> = {};
+            if (this.authToken) {
+                headers['Authorization'] = `Bearer ${this.authToken}`;
+            }
+
+            this.ws = new WebSocket(wsUrl, { headers });
+
+            this.ws.on('open', () => {
+                console.log('✓ Switched to new session successfully');
+                this.reconnectAttempts = 0;
+
+                // Send client hello
+                this.send({
+                    type: 'client.hello',
+                    protocol_version: '1.0.0',
+                    client_info: {
+                        name: 'vscode-extension',
+                        version: '0.1.0',
+                        capabilities: ['diff_preview', 'terminal_exec', 'git_integration']
+                    }
+                });
+
+                resolve();
+            });
+
+            this.ws.on('message', (data: WebSocket.Data) => {
+                try {
+                    const message = JSON.parse(data.toString());
+                    this.handleMessage(message);
+                } catch (error) {
+                    console.error('Failed to parse message:', error);
+                }
+            });
+
+            this.ws.on('error', (error: Error) => {
+                console.error('WebSocket error:', error);
+                reject(error);
+            });
+
+            this.ws.on('close', () => {
+                console.log('WebSocket closed');
+                this.attemptReconnect();
+            });
+        });
+    }
+
+    async createNewSession(): Promise<string> {
+        if (!this.serverUrl) {
+            throw new Error('Not connected to server');
+        }
+
+        // Create new session
+        const newSessionId = await this.createSession(this.serverUrl, this.authToken);
+
+        // Switch to it
+        await this.switchToSession(newSessionId);
+
+        return newSessionId;
+    }
+
+    async getSessionMessages(sessionId: string): Promise<any[]> {
+        if (!this.serverUrl) {
+            throw new Error('Not connected to server');
+        }
+
+        const headers: Record<string, string> = {};
+        if (this.authToken) {
+            headers['Authorization'] = `Bearer ${this.authToken}`;
+        }
+
+        const response = await fetch(`${this.serverUrl}/v1/sessions/${sessionId}/messages`, { headers });
+
+        if (!response.ok) {
+            throw new Error(`Failed to get session messages: ${response.statusText}`);
+        }
+
+        return await response.json() as any[];
+    }
+
     private notifyIndexProgress(payload: any): void {
         for (const handler of this.indexProgressHandlers) {
             handler(payload);
@@ -509,6 +629,35 @@ export class ServerClient {
         const autoApproveTests = this.getExplicitSetting<boolean>(config, 'policy.autoApproveTests');
         if (autoApproveTests !== undefined) {
             overrides.auto_approve_tests = autoApproveTests;
+        }
+
+        const autoApproveToolSettings: Array<{ key: string; tool: string }> = [
+            { key: 'policy.autoApproveTools.readFile', tool: 'read_file' },
+            { key: 'policy.autoApproveTools.writeFile', tool: 'write_file' },
+            { key: 'policy.autoApproveTools.listFiles', tool: 'list_files' },
+            { key: 'policy.autoApproveTools.applyPatch', tool: 'apply_patch' },
+            { key: 'policy.autoApproveTools.proposePatch', tool: 'propose_patch' },
+            { key: 'policy.autoApproveTools.proposeDiff', tool: 'propose_diff' },
+            { key: 'policy.autoApproveTools.reportPlan', tool: 'report_plan' },
+            { key: 'policy.autoApproveTools.runCommand', tool: 'run_command' },
+            { key: 'policy.autoApproveTools.runTests', tool: 'run_tests' }
+        ];
+
+        let hasAutoApproveTools = false;
+        const autoApproveTools: string[] = [];
+
+        for (const entry of autoApproveToolSettings) {
+            const value = this.getExplicitSetting<boolean>(config, entry.key);
+            if (value !== undefined) {
+                hasAutoApproveTools = true;
+                if (value) {
+                    autoApproveTools.push(entry.tool);
+                }
+            }
+        }
+
+        if (hasAutoApproveTools) {
+            overrides.auto_approve_tools = autoApproveTools;
         }
 
         return overrides;

@@ -15,7 +15,7 @@ class Tool(ABC):
     name: str
     description: str
     parameters: Dict[str, Any]
-    requires_approval: bool = False
+    requires_approval: bool = True
     approval_scope: str = "tool"
 
     @abstractmethod
