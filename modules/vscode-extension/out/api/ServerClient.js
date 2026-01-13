@@ -151,19 +151,25 @@ class ServerClient {
         }
     }
     send(message) {
+        console.log(`[ServerClient] send() called with message type: ${message.type}`);
         if (this.ws && this.ws.readyState === ws_1.default.OPEN) {
+            console.log(`[ServerClient] Sending message:`, JSON.stringify(message));
             this.ws.send(JSON.stringify(message));
+            console.log(`[ServerClient] Message sent successfully`);
         }
         else {
-            console.error('WebSocket not connected');
+            console.error(`[ServerClient] WebSocket not connected! ws=${this.ws}, readyState=${this.ws?.readyState}`);
         }
     }
     sendApprovalResponse(requestId, approved) {
+        console.log(`[ServerClient] sendApprovalResponse called: requestId=${requestId}, approved=${approved}`);
+        console.log(`[ServerClient] WebSocket state: ${this.ws ? this.ws.readyState : 'null'}, OPEN=${ws_1.default.OPEN}`);
         this.send({
             type: 'client.approval_response',
             request_id: requestId,
             approved
         });
+        console.log(`[ServerClient] Approval response sent`);
     }
     onMessage(handler) {
         // Only add if not already registered (prevent duplicates from reactivation)
@@ -295,31 +301,48 @@ class ServerClient {
         return data.id;
     }
     async createSession(serverUrl, token) {
+        console.log('[ServerClient] createSession called, serverUrl:', serverUrl);
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
+            console.error('[ServerClient] No workspace folder open');
             throw new Error('No workspace folder open');
         }
-        // Get workspace ID
-        const workspaceId = await this.registerWorkspace(serverUrl, token);
-        const headers = {
-            'Content-Type': 'application/json'
-        };
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
+        try {
+            // Get workspace ID
+            console.log('[ServerClient] Registering workspace...');
+            const workspaceId = await this.registerWorkspace(serverUrl, token);
+            console.log('[ServerClient] Workspace ID:', workspaceId);
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            // Let server use its configured defaults
+            const url = `${serverUrl}/v1/sessions`;
+            console.log('[ServerClient] Creating session via POST to:', url);
+            console.log('[ServerClient] Request body:', JSON.stringify({ workspace_id: workspaceId }));
+            const response = await fetch(url, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    workspace_id: workspaceId
+                })
+            });
+            console.log('[ServerClient] Response status:', response.status, response.statusText);
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[ServerClient] Error response body:', errorText);
+                throw new Error(`Failed to create session: ${response.statusText} - ${errorText}`);
+            }
+            const data = await response.json();
+            console.log('[ServerClient] Session created successfully, ID:', data.id);
+            return data.id;
         }
-        // Let server use its configured defaults
-        const response = await fetch(`${serverUrl}/v1/sessions`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                workspace_id: workspaceId
-            })
-        });
-        if (!response.ok) {
-            throw new Error(`Failed to create session: ${response.statusText}`);
+        catch (error) {
+            console.error('[ServerClient] createSession error:', error);
+            throw error;
         }
-        const data = await response.json();
-        return data.id;
     }
     async listSessions() {
         if (!this.serverUrl || !this.workspaceId) {
@@ -392,14 +415,26 @@ class ServerClient {
         });
     }
     async createNewSession() {
+        console.log('[ServerClient] createNewSession called');
         if (!this.serverUrl) {
+            console.error('[ServerClient] No server URL - not connected');
             throw new Error('Not connected to server');
         }
-        // Create new session
-        const newSessionId = await this.createSession(this.serverUrl, this.authToken);
-        // Switch to it
-        await this.switchToSession(newSessionId);
-        return newSessionId;
+        try {
+            console.log('[ServerClient] Creating new session...');
+            // Create new session
+            const newSessionId = await this.createSession(this.serverUrl, this.authToken);
+            console.log('[ServerClient] New session created:', newSessionId);
+            // Switch to it
+            console.log('[ServerClient] Switching to new session...');
+            await this.switchToSession(newSessionId);
+            console.log('[ServerClient] Switched to new session successfully');
+            return newSessionId;
+        }
+        catch (error) {
+            console.error('[ServerClient] Failed to create new session:', error);
+            throw error;
+        }
     }
     async getSessionMessages(sessionId) {
         if (!this.serverUrl) {

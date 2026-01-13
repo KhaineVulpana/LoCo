@@ -372,18 +372,27 @@ class Agent:
     async def _await_approval(self, request_id: str, timeout: int = 300) -> bool:
         future = self._pending_approvals.get(request_id)
         if not future:
+            logger.error("await_approval_no_future", request_id=request_id)
             return False
+        logger.info("await_approval_waiting", request_id=request_id, timeout=timeout)
         try:
-            return await asyncio.wait_for(future, timeout=timeout)
+            result = await asyncio.wait_for(future, timeout=timeout)
+            logger.info("await_approval_completed", request_id=request_id, approved=result)
+            return result
         except asyncio.TimeoutError:
+            logger.warning("await_approval_timeout", request_id=request_id)
             return False
         finally:
             self._pending_approvals.pop(request_id, None)
 
     def resolve_approval(self, request_id: str, approved: bool) -> None:
+        logger.info("resolve_approval_called", request_id=request_id, approved=approved, pending_count=len(self._pending_approvals))
         future = self._pending_approvals.get(request_id)
         if future and not future.done():
+            logger.info("resolve_approval_setting_result", request_id=request_id, approved=approved)
             future.set_result(bool(approved))
+        else:
+            logger.warning("resolve_approval_failed", request_id=request_id, has_future=future is not None, is_done=future.done() if future else None)
 
     def _init_tools(self):
         """Initialize and register all tools"""

@@ -360,6 +360,7 @@ async def websocket_endpoint(
             message = json.loads(data)
 
             message_type = message.get("type")
+            logger.info("websocket_message_received", session_id=session_id, message_type=message_type, message=message)
 
             if message_type == "client.hello":
                 logger.info("client_hello_received", client_info=message.get("client_info"))

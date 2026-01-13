@@ -84,6 +84,12 @@ class SidebarProvider {
                 case 'createNewSession':
                     await this.handleCreateNewSession();
                     break;
+                case 'approveRequest':
+                    this.handleApprovalResponse(data.requestId, true);
+                    break;
+                case 'rejectRequest':
+                    this.handleApprovalResponse(data.requestId, false);
+                    break;
             }
         });
     }
@@ -189,6 +195,10 @@ class SidebarProvider {
             case 'patch.proposed':
                 this.showPatch(message);
                 break;
+            case 'tool.request_approval':
+            case 'command.request_approval':
+                this.showApprovalRequest(message);
+                break;
             case 'server.error':
                 this.showError(message.error.message);
                 // Notify UI that generation stopped due to error
@@ -276,6 +286,21 @@ class SidebarProvider {
                 message
             });
         }
+    }
+    showApprovalRequest(message) {
+        if (this.view) {
+            this.view.webview.postMessage({
+                type: 'approvalRequest',
+                requestId: message.request_id,
+                tool: message.tool || 'tool',
+                arguments: message.arguments || {},
+                message: message.message || `Approve ${message.tool}?`
+            });
+        }
+    }
+    handleApprovalResponse(requestId, approved) {
+        console.log(`[SidebarProvider] Handling approval response: requestId=${requestId}, approved=${approved}`);
+        this.serverClient.sendApprovalResponse(requestId, approved);
     }
     renderMarkdown(content) {
         // Clean up excessive newlines and whitespace
@@ -633,6 +658,74 @@ class SidebarProvider {
                     border-radius: 4px;
                     color: var(--vscode-errorForeground);
                     font-size: 12px;
+                }
+
+                .approval-card {
+                    margin: 12px 0 12px 32px;
+                    padding: 12px;
+                    background-color: var(--vscode-inputValidation-warningBackground);
+                    border-left: 3px solid var(--vscode-inputValidation-warningBorder);
+                    border-radius: 6px;
+                    animation: slideIn 0.2s ease-out;
+                }
+
+                .approval-header {
+                    font-weight: 600;
+                    margin-bottom: 8px;
+                    color: var(--vscode-foreground);
+                    font-size: 13px;
+                }
+
+                .approval-message {
+                    margin-bottom: 12px;
+                    color: var(--vscode-foreground);
+                    font-size: 12px;
+                    line-height: 1.5;
+                }
+
+                .approval-details {
+                    background-color: var(--vscode-editor-background);
+                    padding: 8px;
+                    border-radius: 4px;
+                    margin-bottom: 12px;
+                    font-family: var(--vscode-editor-font-family);
+                    font-size: 11px;
+                    overflow-x: auto;
+                    max-height: 200px;
+                    overflow-y: auto;
+                }
+
+                .approval-actions {
+                    display: flex;
+                    gap: 8px;
+                }
+
+                .approval-actions button {
+                    padding: 6px 16px;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    font-weight: 500;
+                    transition: background-color 0.2s;
+                }
+
+                .approval-actions button.approve {
+                    background-color: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                }
+
+                .approval-actions button.approve:hover {
+                    background-color: var(--vscode-button-hoverBackground);
+                }
+
+                .approval-actions button.reject {
+                    background-color: var(--vscode-button-secondaryBackground);
+                    color: var(--vscode-button-secondaryForeground);
+                }
+
+                .approval-actions button.reject:hover {
+                    background-color: var(--vscode-button-secondaryHoverBackground);
                 }
 
                 #input-container {
@@ -1595,6 +1688,9 @@ class SidebarProvider {
                             showError(message.message);
                             updateSendButtonState();
                             break;
+                        case 'approvalRequest':
+                            showApprovalRequest(message.requestId, message.tool, message.arguments, message.message);
+                            break;
                         case 'insertMention':
                             insertMention(message.text);
                             break;
@@ -1674,14 +1770,14 @@ class SidebarProvider {
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
                 }
 
-                let thinkingCard = null;
-                let thinkingBody = null;
-                let thinkingHistory = [];
+                let currentThinkingCard = null;
+                let currentThinkingBody = null;
+                let currentThinkingHistory = [];
 
                 function updateThinking(phase, message) {
-                    if (!thinkingCard) {
-                        thinkingCard = document.createElement('div');
-                        thinkingCard.className = 'thinking-card';
+                    if (!currentThinkingCard) {
+                        currentThinkingCard = document.createElement('div');
+                        currentThinkingCard.className = 'thinking-card';
 
                         const headerDiv = document.createElement('div');
                         headerDiv.className = 'thinking-card-header';
@@ -1701,53 +1797,62 @@ class SidebarProvider {
                         headerDiv.appendChild(spinner);
                         headerDiv.appendChild(text);
 
-                        thinkingBody = document.createElement('pre');
-                        thinkingBody.className = 'thinking-card-body collapsed';
+                        currentThinkingBody = document.createElement('pre');
+                        currentThinkingBody.className = 'thinking-card-body collapsed';
+
+                        // Capture the body in closure for this specific card
+                        const cardBody = currentThinkingBody;
+                        const cardIcon = icon;
 
                         // Toggle collapse/expand on header click
                         headerDiv.addEventListener('click', () => {
-                            const isCollapsed = thinkingBody.classList.contains('collapsed');
-                            thinkingBody.classList.toggle('collapsed');
-                            icon.classList.toggle('expanded', isCollapsed);
+                            const isCollapsed = cardBody.classList.contains('collapsed');
+                            cardBody.classList.toggle('collapsed');
+                            cardIcon.classList.toggle('expanded', isCollapsed);
                         });
 
-                        thinkingCard.appendChild(headerDiv);
-                        thinkingCard.appendChild(thinkingBody);
-                        messagesContainer.appendChild(thinkingCard);
+                        currentThinkingCard.appendChild(headerDiv);
+                        currentThinkingCard.appendChild(currentThinkingBody);
+                        messagesContainer.appendChild(currentThinkingCard);
 
-                        thinkingHistory = [];
+                        currentThinkingHistory = [];
                     }
 
                     // Add to thinking history
-                    const thinkingMessage = message || \`\${phase}...\`;
-                    thinkingHistory.push(\`[\${new Date().toLocaleTimeString()}] \${phase}: \${thinkingMessage}\`);
+                    const thinkingMessage = message || phase || 'Thinking...';
+                    const timestamp = new Date().toLocaleTimeString();
+                    currentThinkingHistory.push(\`[\${timestamp}] \${phase || 'thinking'}: \${thinkingMessage}\`);
 
                     // Update body with full history
-                    thinkingBody.textContent = thinkingHistory.join('\\n');
+                    currentThinkingBody.textContent = currentThinkingHistory.join('\\n');
 
                     // Update header text to show latest
-                    thinkingCard.querySelector('.thinking-text').textContent = thinkingMessage;
+                    const headerText = currentThinkingCard.querySelector('.thinking-text');
+                    if (headerText) {
+                        headerText.textContent = thinkingMessage;
+                    }
 
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
                 }
 
                 function clearThinking() {
-                    if (thinkingCard) {
+                    if (currentThinkingCard) {
                         // Remove the spinner when thinking is done
-                        const spinner = thinkingCard.querySelector('.thinking-spinner');
+                        const spinner = currentThinkingCard.querySelector('.thinking-spinner');
                         if (spinner) {
                             spinner.remove();
                         }
 
                         // Update header to show it's complete
-                        const headerText = thinkingCard.querySelector('.thinking-text');
+                        const headerText = currentThinkingCard.querySelector('.thinking-text');
                         if (headerText) {
                             headerText.textContent = 'Thinking complete';
                         }
 
-                        thinkingCard = null;
-                        thinkingBody = null;
-                        thinkingHistory = [];
+                        // Clear references for next thinking card
+                        currentThinkingCard = null;
+                        currentThinkingBody = null;
+                        currentThinkingHistory = [];
                     }
                 }
 
@@ -1925,6 +2030,54 @@ class SidebarProvider {
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
                 }
 
+                function showApprovalRequest(requestId, tool, args, message) {
+                    const card = document.createElement('div');
+                    card.className = 'approval-card';
+                    card.dataset.requestId = requestId;
+
+                    const header = document.createElement('div');
+                    header.className = 'approval-header';
+                    header.textContent = '⚠️ Approval Required';
+
+                    const messageText = document.createElement('div');
+                    messageText.className = 'approval-message';
+                    messageText.textContent = message || ('Approve ' + tool + '?');
+
+                    const details = document.createElement('pre');
+                    details.className = 'approval-details';
+                    details.textContent = JSON.stringify(args, null, 2);
+
+                    const actions = document.createElement('div');
+                    actions.className = 'approval-actions';
+
+                    const approveBtn = document.createElement('button');
+                    approveBtn.className = 'approve';
+                    approveBtn.textContent = 'Approve';
+                    approveBtn.addEventListener('click', () => {
+                        vscode.postMessage({ type: 'approveRequest', requestId });
+                        card.remove();
+                    });
+
+                    const rejectBtn = document.createElement('button');
+                    rejectBtn.className = 'reject';
+                    rejectBtn.textContent = 'Reject';
+                    rejectBtn.addEventListener('click', () => {
+                        vscode.postMessage({ type: 'rejectRequest', requestId });
+                        card.remove();
+                    });
+
+                    actions.appendChild(approveBtn);
+                    actions.appendChild(rejectBtn);
+
+                    card.appendChild(header);
+                    card.appendChild(messageText);
+                    card.appendChild(details);
+                    card.appendChild(actions);
+
+                    messagesContainer.appendChild(card);
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                }
+
                 function acceptPatch(patchId) {
                     vscode.postMessage({ type: 'acceptPatch', patchId });
                 }
@@ -1946,9 +2099,9 @@ class SidebarProvider {
                     hasMessages = false;
                     emptyState.style.display = 'flex';
                     currentAssistantMessage = null;
-                    thinkingCard = null;
-                    thinkingBody = null;
-                    thinkingHistory = [];
+                    currentThinkingCard = null;
+                    currentThinkingBody = null;
+                    currentThinkingHistory = [];
                 }
 
                 function showSessionsList(sessions) {

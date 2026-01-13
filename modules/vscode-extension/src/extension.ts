@@ -47,9 +47,7 @@ export async function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        if (message.type === 'tool.request_approval' || message.type === 'command.request_approval') {
-            void handleApprovalRequest(message);
-        }
+        // Approval requests are now handled in SidebarProvider
     });
 
     serverClient.onIndexProgress((progress) => {
