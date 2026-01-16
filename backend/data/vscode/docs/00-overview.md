@@ -1,9 +1,9 @@
 # LoCo VS Code RAG Overview
 
-This folder contains operational knowledge for the VS Code frontend. The goal is to prepopulate the `loco_rag_vscode` collection so the agent can retrieve high-signal guidance during coding tasks.
+This folder contains operational knowledge for the VS Code module. The goal is to prepopulate the `loco_rag_vscode` collection so the agent can retrieve high-signal guidance during coding tasks.
 
 Key concepts
-- Frontends (not domains): the system scopes knowledge and ACE by `frontend_id`.
+- Modules (not domains): the system scopes knowledge and ACE by `module_id`.
 - VS Code collection names:
   - RAG: `loco_rag_vscode`
   - ACE: `loco_ace_vscode`

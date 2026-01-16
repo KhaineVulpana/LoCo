@@ -16,7 +16,7 @@ async def test_discover_files_respects_gitignore(tmp_path, fake_embedding_manage
 
     indexer = FileIndexer(
         workspace_id='ws-1',
-        frontend_id='vscode',
+        module_id='vscode',
         workspace_path=str(tmp_path),
         embedding_manager=fake_embedding_manager,
         vector_store=fake_vector_store,
@@ -36,7 +36,7 @@ async def test_index_file_stores_vectors(tmp_path, fake_embedding_manager, fake_
 
     indexer = FileIndexer(
         workspace_id='ws-2',
-        frontend_id='vscode',
+        module_id='vscode',
         workspace_path=str(tmp_path),
         embedding_manager=fake_embedding_manager,
         vector_store=fake_vector_store,
@@ -62,7 +62,7 @@ async def test_index_file_persists_chunks(tmp_path, fake_embedding_manager, fake
     async with async_session_maker() as session:
         indexer = FileIndexer(
             workspace_id='ws-3',
-            frontend_id='vscode',
+            module_id='vscode',
             workspace_path=str(tmp_path),
             embedding_manager=fake_embedding_manager,
             vector_store=fake_vector_store,

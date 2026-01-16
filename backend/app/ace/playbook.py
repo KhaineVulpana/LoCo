@@ -130,10 +130,7 @@ class Playbook:
         if section not in self.sections:
             self.sections[section] = []
 
-        if bullet_id is None:
-            # Generate unique ID
-            prefix = section[:3]
-            bullet_id = f"{prefix}-{str(uuid.uuid4())[:8]}"
+        bullet_id = self._normalize_bullet_id(bullet_id)
 
         bullet = PlaybookBullet(
             id=bullet_id,
@@ -147,6 +144,18 @@ class Playbook:
 
         logger.debug("bullet_added", bullet_id=bullet_id, section=section)
         return bullet_id
+
+    @staticmethod
+    def _normalize_bullet_id(bullet_id: Optional[str]) -> str:
+        """Ensure bullet IDs are valid UUID strings for vector storage."""
+        if bullet_id is None:
+            return str(uuid.uuid4())
+
+        try:
+            return str(uuid.UUID(str(bullet_id)))
+        except (ValueError, TypeError, AttributeError):
+            logger.warning("bullet_id_invalid_uuid", bullet_id=bullet_id)
+            return str(uuid.uuid4())
 
     def update_bullet(self, bullet_id: str, **kwargs):
         """Update an existing bullet"""

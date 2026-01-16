@@ -24,7 +24,7 @@ async def test_index_training_data_accepts_instruction_format(
     )
 
     indexer = KnowledgeIndexer(
-        frontend_id="3d-gen",
+        module_id="3d-gen",
         embedding_manager=fake_embedding_manager,
         vector_store=fake_vector_store
     )

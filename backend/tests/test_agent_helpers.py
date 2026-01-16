@@ -2,7 +2,7 @@ from app.agent.agent import Agent
 
 
 def test_format_user_message_with_context(tmp_path):
-    agent = Agent(workspace_path=str(tmp_path), frontend_id='vscode', enable_ace=False)
+    agent = Agent(workspace_path=str(tmp_path), module_id='vscode', enable_ace=False)
     context = {
         'active_editor': {
             'file_path': 'main.py',
@@ -28,7 +28,7 @@ def test_format_user_message_with_context(tmp_path):
 
 
 def test_build_messages_includes_system_prompt_and_playbook(tmp_path):
-    agent = Agent(workspace_path=str(tmp_path), frontend_id='3d-gen', enable_ace=True)
+    agent = Agent(workspace_path=str(tmp_path), module_id='3d-gen', enable_ace=True)
     bullet_id = agent.playbook.add_bullet('domain_knowledge', 'Meshes are in meters.')
 
     messages = agent._build_messages()
@@ -39,7 +39,7 @@ def test_build_messages_includes_system_prompt_and_playbook(tmp_path):
 
 
 def test_get_display_result_truncates_read_file(tmp_path):
-    agent = Agent(workspace_path=str(tmp_path), frontend_id='vscode', enable_ace=False)
+    agent = Agent(workspace_path=str(tmp_path), module_id='vscode', enable_ace=False)
     content = '\n'.join([f'line{i}' for i in range(60)])
     result = agent._get_display_result('read_file', {
         'success': True,
@@ -54,7 +54,7 @@ def test_get_display_result_truncates_read_file(tmp_path):
 
 
 def test_summarize_tool_result_truncates_large_payloads(tmp_path):
-    agent = Agent(workspace_path=str(tmp_path), frontend_id='vscode', enable_ace=False)
+    agent = Agent(workspace_path=str(tmp_path), module_id='vscode', enable_ace=False)
 
     files = [f'file_{i}.txt' for i in range(25)]
     summary = agent._summarize_tool_result('list_files', {

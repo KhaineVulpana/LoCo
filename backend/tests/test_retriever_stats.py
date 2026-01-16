@@ -20,7 +20,7 @@ def test_retriever_stats_include_ace(fake_vector_store, fake_embedding_manager):
     )
 
     retriever = Retriever(
-        frontend_id='vscode',
+        module_id='vscode',
         embedding_manager=fake_embedding_manager,
         vector_store=fake_vector_store
     )

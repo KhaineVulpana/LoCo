@@ -3,6 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "test:integration": "node --test tests/integration-ui.test.js",
+    "test:tauri": "node --test tests/tauri-ui.test.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.2",
+    "selenium-webdriver": "^4.25.0",
+    "ws": "^8.18.0"
   }
 }

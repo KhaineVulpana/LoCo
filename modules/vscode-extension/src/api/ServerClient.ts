@@ -278,7 +278,7 @@ export class ServerClient {
             throw new Error('No workspace folder open');
         }
 
-        const frontendId = 'vscode';
+        const moduleId = 'vscode';
         const headers: Record<string, string> = {
             'Content-Type': 'application/json'
         };
@@ -292,7 +292,7 @@ export class ServerClient {
             body: JSON.stringify({
                 path: workspaceFolder.uri.fsPath,
                 name: workspaceFolder.name,
-                frontend_id: frontendId,
+                module_id: moduleId,
                 auto_index: autoIndexWorkspace,
                 auto_watch: autoWatchWorkspace,
                 use_polling: usePollingWatcher
@@ -517,7 +517,7 @@ export class ServerClient {
     private async startIndexStream(
         serverUrl: string,
         token: string | undefined,
-        frontendId: string,
+        moduleId: string,
         autoStart: boolean,
         autoWatch: boolean,
         usePollingWatcher: boolean
@@ -531,7 +531,7 @@ export class ServerClient {
         }
 
         const url = new URL(`${serverUrl}/v1/workspaces/${this.workspaceId}/index/stream`);
-        url.searchParams.set('frontend_id', frontendId);
+        url.searchParams.set('module_id', moduleId);
         url.searchParams.set('auto_start', autoStart ? 'true' : 'false');
         url.searchParams.set('auto_watch', autoWatch ? 'true' : 'false');
         url.searchParams.set('use_polling', usePollingWatcher ? 'true' : 'false');
@@ -590,7 +590,7 @@ export class ServerClient {
     private async startWorkspaceWatch(
         serverUrl: string,
         token: string | undefined,
-        frontendId: string,
+        moduleId: string,
         usePollingWatcher: boolean
     ): Promise<void> {
         if (!this.workspaceId) {
@@ -608,7 +608,7 @@ export class ServerClient {
             method: 'POST',
             headers,
             body: JSON.stringify({
-                frontend_id: frontendId,
+                module_id: moduleId,
                 use_polling: usePollingWatcher
             })
         });

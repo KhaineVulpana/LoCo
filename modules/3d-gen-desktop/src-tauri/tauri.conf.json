@@ -1,15 +1,14 @@
 {
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LoCo 3D-Gen",
+  "version": "0.1.0",
+  "identifier": "com.loco.3dgen",
   "build": {
     "beforeBuildCommand": "",
     "beforeDevCommand": "",
-    "devPath": "../ui/index.html",
-    "distDir": "../ui"
+    "frontendDist": "../ui"
   },
-  "package": {
-    "productName": "LoCo 3D-Gen",
-    "version": "0.1.0"
-  },
-  "tauri": {
+  "app": {
     "windows": [
       {
         "title": "LoCo 3D-Gen",
@@ -20,10 +19,11 @@
     ],
     "security": {
       "csp": null
-    },
-    "bundle": {
-      "active": true,
-      "targets": ["msi", "nsis"]
     }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis"],
+    "icon": ["icons/icon.ico"]
   }
 }

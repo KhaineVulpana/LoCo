@@ -3,7 +3,7 @@ from app.retrieval.retriever import Retriever, RetrievalResult
 
 def test_context_pack_budget_truncates(fake_embedding_manager, fake_vector_store):
     retriever = Retriever(
-        frontend_id="vscode",
+        module_id="vscode",
         embedding_manager=fake_embedding_manager,
         vector_store=fake_vector_store
     )

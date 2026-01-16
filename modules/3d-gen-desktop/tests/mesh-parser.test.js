@@ -35,3 +35,21 @@ test('returns null on invalid json', () => {
   const result = extractMeshPayload(input);
   assert.equal(result, null);
 });
+
+test('extracts mesh payload from raw json', () => {
+  const input = `{"mesh":{"vertices":[[0,0,0],[1,0,0],[0,1,0]],"triangles":[[0,1,2]]}}`;
+  const result = extractMeshPayload(input);
+  assert.ok(result);
+  assert.equal(result.vertices.length, 3);
+});
+
+test('extracts mesh payload from non-json fenced block', () => {
+  const input = `
+\`\`\`
+{"vertices":[[0,0,0],[1,0,0],[0,1,0]],"triangles":[[0,1,2]]}
+\`\`\`
+`;
+  const result = extractMeshPayload(input);
+  assert.ok(result);
+  assert.equal(result.triangles.length, 1);
+});

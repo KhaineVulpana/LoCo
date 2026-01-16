@@ -68,7 +68,7 @@ class WorkspaceFileWatcher:
     def __init__(
         self,
         workspace_id: str,
-        frontend_id: str,
+        module_id: str,
         workspace_path: str,
         embedding_manager: EmbeddingManager,
         vector_store: VectorStore,
@@ -77,7 +77,7 @@ class WorkspaceFileWatcher:
         use_polling: bool = False
     ):
         self.workspace_id = workspace_id
-        self.frontend_id = frontend_id
+        self.module_id = module_id
         self.workspace_path = Path(workspace_path)
         self.embedder = embedding_manager
         self.vector_store = vector_store
@@ -94,7 +94,7 @@ class WorkspaceFileWatcher:
 
         self._indexer = FileIndexer(
             workspace_id=self.workspace_id,
-            frontend_id=self.frontend_id,
+            module_id=self.module_id,
             workspace_path=str(self.workspace_path),
             embedding_manager=self.embedder,
             vector_store=self.vector_store,

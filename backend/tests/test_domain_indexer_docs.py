@@ -11,7 +11,7 @@ async def test_index_documentation_indexes_markdown(tmp_path, fake_embedding_man
     (docs_path / 'data.jsonl').write_text('{"prompt": "skip"}\n', encoding='utf-8')
 
     indexer = KnowledgeIndexer(
-        frontend_id='3d-gen',
+        module_id='3d-gen',
         embedding_manager=fake_embedding_manager,
         vector_store=fake_vector_store
     )

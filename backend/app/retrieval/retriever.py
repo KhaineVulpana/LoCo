@@ -26,7 +26,7 @@ class RetrievalResult:
     content: str         # Chunk content
     source: str          # Source identifier (file path, doc name, etc.)
     metadata: Dict[str, Any]  # Additional metadata
-    frontend_id: str = None
+    module_id: str = None
 
 
 @dataclass
@@ -43,7 +43,7 @@ class Retriever:
 
     def __init__(
         self,
-        frontend_id: str,
+        module_id: str,
         embedding_manager: EmbeddingManager,
         vector_store: VectorStore,
         db_session_maker: Optional[async_sessionmaker] = None,
@@ -54,22 +54,22 @@ class Retriever:
         Initialize retriever
 
         Args:
-            frontend_id: Frontend to search in ("vscode", "android", "3d-gen")
+            module_id: Module to search in ("vscode", "android", "3d-gen")
             embedding_manager: Embedding manager instance
             vector_store: Vector store instance
         """
-        self.frontend_id = frontend_id
+        self.module_id = module_id
         self.embedder = embedding_manager
         self.vector_store = vector_store
         self.db_session_maker = db_session_maker
         self.workspace_path = workspace_path
-        self.collection_name = f"loco_rag_{frontend_id}"
+        self.collection_name = f"loco_rag_{module_id}"
         self.shared_collection = shared_collection
         if self.shared_collection == self.collection_name:
             self.shared_collection = None
         self._rg_path = shutil.which("rg")
 
-        logger.debug("retriever_initialized", frontend_id=frontend_id)
+        logger.debug("retriever_initialized", module_id=module_id)
 
     async def retrieve(
         self,
@@ -93,7 +93,7 @@ class Retriever:
             return []
 
         logger.debug("retrieval_start",
-                    frontend_id=self.frontend_id,
+                    module_id=self.module_id,
                     query=query[:100],
                     limit=limit)
 
@@ -111,7 +111,7 @@ class Retriever:
             query_vector=query_vector.tolist(),
             limit=limit,
             score_threshold=score_threshold,
-            frontend_id=self.frontend_id
+            module_id=self.module_id
         )
 
         if self.shared_collection:
@@ -120,14 +120,14 @@ class Retriever:
                 query_vector=query_vector.tolist(),
                 limit=limit,
                 score_threshold=score_threshold,
-                frontend_id="shared"
+                module_id="shared"
             )
             retrieval_results = self._merge_results(retrieval_results, shared_results)
 
         retrieval_results = self._rerank_results(retrieval_results, query)
 
         logger.info("retrieval_complete",
-                   frontend_id=self.frontend_id,
+                   module_id=self.module_id,
                    query=query[:50],
                    results=len(retrieval_results),
                    top_score=retrieval_results[0].score if retrieval_results else 0)
@@ -140,7 +140,7 @@ class Retriever:
         query_vector: List[float],
         limit: int,
         score_threshold: float,
-        frontend_id: Optional[str]
+        module_id: Optional[str]
     ) -> List[RetrievalResult]:
         if not collection_name:
             return []
@@ -154,7 +154,7 @@ class Retriever:
             )
         except Exception as e:
             logger.error("vector_search_failed",
-                        frontend_id=frontend_id or self.frontend_id,
+                        module_id=module_id or self.module_id,
                         collection=collection_name,
                         error=str(e))
             return []
@@ -170,7 +170,7 @@ class Retriever:
                 content=payload.get("content", ""),
                 source=payload.get("source", payload.get("full_path", "unknown")),
                 metadata=metadata,
-                frontend_id=frontend_id
+                module_id=module_id
             ))
 
         return retrieval_results
@@ -246,7 +246,7 @@ class Retriever:
                 content=content,
                 source=source,
                 metadata=payload,
-                frontend_id=self.frontend_id
+                module_id=self.module_id
             ))
 
         logger.info("workspace_retrieval_complete",
@@ -418,7 +418,7 @@ class Retriever:
                         content=content or signature or name or "",
                         source=file_path or "workspace",
                         metadata=payload,
-                        frontend_id=self.frontend_id
+                        module_id=self.module_id
                     ))
 
         return results
@@ -496,7 +496,7 @@ class Retriever:
                 content=text_line.strip(),
                 source=rel_path,
                 metadata=payload,
-                frontend_id=self.frontend_id
+                module_id=self.module_id
             ))
 
         return matches
@@ -557,7 +557,7 @@ class Retriever:
                     content=snippet,
                     source=file_path,
                     metadata=payload,
-                    frontend_id=self.frontend_id
+                    module_id=self.module_id
                 ))
                 if len(results) >= limit:
                     break
@@ -660,14 +660,14 @@ class Retriever:
         Returns:
             List of relevant ACE bullets
         """
-        ace_collection = f"loco_ace_{self.frontend_id}"
+        ace_collection = f"loco_ace_{self.module_id}"
 
         if not query:
             logger.warning("empty_ace_query")
             return []
 
         logger.debug("ace_retrieval_start",
-                    frontend_id=self.frontend_id,
+                    module_id=self.module_id,
                     query=query[:100],
                     limit=limit)
 
@@ -690,7 +690,7 @@ class Retriever:
             )
         except Exception as e:
             logger.error("ace_search_failed",
-                        frontend_id=self.frontend_id,
+                        module_id=self.module_id,
                         error=str(e))
             return []
 
@@ -705,11 +705,11 @@ class Retriever:
                 content=payload.get("content", ""),
                 source=f"ace_bullet_{bullet_id}",
                 metadata=payload,
-                frontend_id=self.frontend_id
+                module_id=self.module_id
             ))
 
         logger.info("ace_retrieval_complete",
-                   frontend_id=self.frontend_id,
+                   module_id=self.module_id,
                    query=query[:50],
                    results=len(retrieval_results))
 
@@ -726,7 +726,7 @@ class Retriever:
             rag_info = self.vector_store.get_collection_info(self.collection_name)
 
             # Try to get ACE stats too
-            ace_collection = f"loco_ace_{self.frontend_id}"
+            ace_collection = f"loco_ace_{self.module_id}"
             try:
                 ace_info = self.vector_store.get_collection_info(ace_collection)
             except Exception as e:
@@ -743,7 +743,7 @@ class Retriever:
                     shared_info = None
 
             return {
-                "frontend_id": self.frontend_id,
+                "module_id": self.module_id,
                 "rag_collection": self.collection_name,
                 "rag_chunks": rag_info["points_count"],
                 "rag_status": rag_info["status"],
@@ -755,6 +755,6 @@ class Retriever:
             }
         except Exception as e:
             logger.error("get_stats_failed",
-                        frontend_id=self.frontend_id,
+                        module_id=self.module_id,
                         error=str(e))
             return {}

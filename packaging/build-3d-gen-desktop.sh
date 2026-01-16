@@ -18,15 +18,39 @@ fi
 
 # Check for Cargo
 if ! command -v cargo &> /dev/null; then
+    if [ -x "$HOME/.cargo/bin/cargo" ]; then
+        export PATH="$HOME/.cargo/bin:$PATH"
+    fi
+fi
+if ! command -v cargo &> /dev/null; then
     echo "ERROR: Rust/Cargo is not installed"
     echo "Please install Rust from https://www.rust-lang.org/tools/install"
     exit 1
 fi
 
-# Check for Tauri CLI
-if ! cargo tauri --version &> /dev/null; then
-    echo "Installing tauri-cli..."
-    cargo install tauri-cli --version 1.5.0
+# Ensure a compatible Rust toolchain is available for building the Tauri CLI
+TAURI_CLI_TOOLCHAIN="1.79.0"
+if ! command -v rustup &> /dev/null; then
+    echo "ERROR: rustup is required to install the Tauri toolchain"
+    echo "Please install Rust from https://www.rust-lang.org/tools/install"
+    exit 1
+fi
+if ! rustup toolchain list | grep -q "$TAURI_CLI_TOOLCHAIN"; then
+    echo "Installing Rust toolchain $TAURI_CLI_TOOLCHAIN..."
+    rustup toolchain install "$TAURI_CLI_TOOLCHAIN"
+fi
+
+# Check for Tauri CLI (v1.x required for this module)
+TAURI_CMD=(cargo tauri)
+TAURI_VERSION=$(cargo tauri --version 2>/dev/null | awk '{print $2}')
+if [ -z "$TAURI_VERSION" ] || [ "${TAURI_VERSION%%.*}" != "1" ]; then
+    LOCAL_TAURI_ROOT="$(pwd)/packaging/.tauri-cli"
+    LOCAL_TAURI_BIN="$LOCAL_TAURI_ROOT/bin/cargo-tauri"
+    if [ ! -x "$LOCAL_TAURI_BIN" ]; then
+        echo "Installing tauri-cli 1.5.0..."
+        cargo +"$TAURI_CLI_TOOLCHAIN" install tauri-cli --version 1.5.0 --locked --root "$LOCAL_TAURI_ROOT"
+    fi
+    export PATH="$LOCAL_TAURI_ROOT/bin:$PATH"
 fi
 
 echo "[1/2] Building Tauri bundles..."

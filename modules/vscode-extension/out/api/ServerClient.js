@@ -258,7 +258,7 @@ class ServerClient {
         if (!workspaceFolder) {
             throw new Error('No workspace folder open');
         }
-        const frontendId = 'vscode';
+        const moduleId = 'vscode';
         const headers = {
             'Content-Type': 'application/json'
         };
@@ -271,7 +271,7 @@ class ServerClient {
             body: JSON.stringify({
                 path: workspaceFolder.uri.fsPath,
                 name: workspaceFolder.name,
-                frontend_id: frontendId,
+                module_id: moduleId,
                 auto_index: autoIndexWorkspace,
                 auto_watch: autoWatchWorkspace,
                 use_polling: usePollingWatcher
@@ -455,7 +455,7 @@ class ServerClient {
             handler(payload);
         }
     }
-    async startIndexStream(serverUrl, token, frontendId, autoStart, autoWatch, usePollingWatcher) {
+    async startIndexStream(serverUrl, token, moduleId, autoStart, autoWatch, usePollingWatcher) {
         if (!this.workspaceId) {
             return;
         }
@@ -463,7 +463,7 @@ class ServerClient {
             this.indexStreamController.abort();
         }
         const url = new URL(`${serverUrl}/v1/workspaces/${this.workspaceId}/index/stream`);
-        url.searchParams.set('frontend_id', frontendId);
+        url.searchParams.set('module_id', moduleId);
         url.searchParams.set('auto_start', autoStart ? 'true' : 'false');
         url.searchParams.set('auto_watch', autoWatch ? 'true' : 'false');
         url.searchParams.set('use_polling', usePollingWatcher ? 'true' : 'false');
@@ -512,7 +512,7 @@ class ServerClient {
             }
         }
     }
-    async startWorkspaceWatch(serverUrl, token, frontendId, usePollingWatcher) {
+    async startWorkspaceWatch(serverUrl, token, moduleId, usePollingWatcher) {
         if (!this.workspaceId) {
             return;
         }
@@ -526,7 +526,7 @@ class ServerClient {
             method: 'POST',
             headers,
             body: JSON.stringify({
-                frontend_id: frontendId,
+                module_id: moduleId,
                 use_polling: usePollingWatcher
             })
         });

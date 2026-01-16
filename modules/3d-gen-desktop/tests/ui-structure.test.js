@@ -12,14 +12,31 @@ const requiredIds = [
   'workspace-path',
   'auth-token',
   'connect-btn',
+  'error-banner',
+  'error-banner-text',
+  'error-banner-dismiss',
+  'prompt-templates',
+  'prompt-history',
   'messages',
   'composer',
   'message-input',
+  'copy-last-prompt',
   'viewer',
   'viewer-overlay',
+  'viewer-overlay-text',
+  'viewer-overlay-hint',
+  'drop-overlay',
+  'toggle-grid',
+  'lighting-preset',
+  'import-mesh',
+  'import-file',
+  'export-glb',
+  'export-stl',
+  'copy-mesh-stats',
   'vertex-count',
   'triangle-count',
-  'mesh-status'
+  'mesh-status',
+  'toast'
 ];
 
 test('3d-gen desktop UI includes core elements', () => {

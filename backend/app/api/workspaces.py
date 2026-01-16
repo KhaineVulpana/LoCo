@@ -36,7 +36,7 @@ workspace_watchers_lock = asyncio.Lock()
 class WorkspaceCreate(BaseModel):
     path: str
     name: Optional[str] = None
-    frontend_id: str = "vscode"
+    module_id: str = "vscode"
     auto_index: bool = False
     auto_watch: bool = False
     use_polling: bool = False
@@ -56,13 +56,13 @@ class WorkspaceResponse(BaseModel):
 
 
 class WorkspaceIndexRequest(BaseModel):
-    frontend_id: str = "vscode"
+    module_id: str = "vscode"
     watch: bool = False
     use_polling: bool = False
 
 
 class WorkspaceWatchRequest(BaseModel):
-    frontend_id: str = "vscode"
+    module_id: str = "vscode"
     use_polling: bool = False
 
 
@@ -109,7 +109,7 @@ DEFAULT_POLICY: Dict[str, Any] = {
 async def _schedule_workspace_index(
     workspace_id: str,
     workspace_path: str,
-    frontend_id: str,
+    module_id: str,
     embedding_manager: EmbeddingManager,
     vector_store: VectorStore,
     auto_watch: bool = False,
@@ -125,7 +125,7 @@ async def _schedule_workspace_index(
             async with async_session_maker() as session:
                 indexer = FileIndexer(
                     workspace_id=workspace_id,
-                    frontend_id=frontend_id,
+                    module_id=module_id,
                     workspace_path=workspace_path,
                     embedding_manager=embedding_manager,
                     vector_store=vector_store,
@@ -148,7 +148,7 @@ async def _schedule_workspace_index(
                 _start_workspace_watch_safe(
                     workspace_id=workspace_id,
                     workspace_path=workspace_path,
-                    frontend_id=frontend_id,
+                    module_id=module_id,
                     embedding_manager=embedding_manager,
                     vector_store=vector_store,
                     use_polling=use_polling
@@ -225,7 +225,7 @@ async def _resolve_workspace_path_in_db(
 async def _start_workspace_watch(
     workspace_id: str,
     workspace_path: str,
-    frontend_id: str,
+    module_id: str,
     embedding_manager: EmbeddingManager,
     vector_store: VectorStore,
     use_polling: bool = False
@@ -236,7 +236,7 @@ async def _start_workspace_watch(
     async with workspace_watchers_lock:
         existing = workspace_watchers.get(workspace_id)
         if existing:
-            if existing.frontend_id != frontend_id or existing.use_polling != use_polling:
+            if existing.module_id != module_id or existing.use_polling != use_polling:
                 await existing.stop()
                 workspace_watchers.pop(workspace_id, None)
             elif existing.is_running():
@@ -246,7 +246,7 @@ async def _start_workspace_watch(
 
         watcher = WorkspaceFileWatcher(
             workspace_id=workspace_id,
-            frontend_id=frontend_id,
+            module_id=module_id,
             workspace_path=workspace_path,
             embedding_manager=embedding_manager,
             vector_store=vector_store,
@@ -265,7 +265,7 @@ async def _start_workspace_watch(
 async def _start_workspace_watch_safe(
     workspace_id: str,
     workspace_path: str,
-    frontend_id: str,
+    module_id: str,
     embedding_manager: EmbeddingManager,
     vector_store: VectorStore,
     use_polling: bool = False
@@ -274,7 +274,7 @@ async def _start_workspace_watch_safe(
         await _start_workspace_watch(
             workspace_id=workspace_id,
             workspace_path=workspace_path,
-            frontend_id=frontend_id,
+            module_id=module_id,
             embedding_manager=embedding_manager,
             vector_store=vector_store,
             use_polling=use_polling
@@ -382,7 +382,7 @@ async def register_workspace(
                 await _schedule_workspace_index(
                     workspace_id=existing[0],
                     workspace_path=resolved_path,
-                    frontend_id=workspace.frontend_id,
+                    module_id=workspace.module_id,
                     embedding_manager=embedding_manager,
                     vector_store=vector_store,
                     auto_watch=workspace.auto_watch,
@@ -447,7 +447,7 @@ async def register_workspace(
             await _schedule_workspace_index(
                 workspace_id=workspace_id,
                 workspace_path=workspace.path,
-                frontend_id=workspace.frontend_id,
+                module_id=workspace.module_id,
                 embedding_manager=embedding_manager,
                 vector_store=vector_store,
                 auto_watch=workspace.auto_watch,
@@ -687,7 +687,7 @@ async def index_workspace(
 
     indexer = FileIndexer(
         workspace_id=workspace_id,
-        frontend_id=request.frontend_id,
+        module_id=request.module_id,
         workspace_path=workspace_path,
         embedding_manager=embedding_manager,
         vector_store=vector_store,
@@ -700,7 +700,7 @@ async def index_workspace(
             await _start_workspace_watch(
                 workspace_id=workspace_id,
                 workspace_path=workspace_path,
-                frontend_id=request.frontend_id,
+                module_id=request.module_id,
                 embedding_manager=embedding_manager,
                 vector_store=vector_store,
                 use_polling=request.use_polling
@@ -713,7 +713,7 @@ async def index_workspace(
     return {
         "success": True,
         "workspace_id": workspace_id,
-        "frontend_id": request.frontend_id,
+        "module_id": request.module_id,
         "stats": stats
     }
 
@@ -721,7 +721,7 @@ async def index_workspace(
 @router.get("/{workspace_id}/index/stream")
 async def stream_index_progress(
     workspace_id: str,
-    frontend_id: str = "vscode",
+    module_id: str = "vscode",
     auto_start: bool = False,
     auto_watch: bool = False,
     use_polling: bool = False
@@ -736,7 +736,7 @@ async def stream_index_progress(
                 await _schedule_workspace_index(
                     workspace_id=workspace_id,
                     workspace_path=workspace_path,
-                    frontend_id=frontend_id,
+                    module_id=module_id,
                     embedding_manager=embedding_manager,
                     vector_store=vector_store,
                     auto_watch=auto_watch,
@@ -827,7 +827,7 @@ async def start_workspace_watch(
         await _start_workspace_watch(
             workspace_id=workspace_id,
             workspace_path=workspace_path,
-            frontend_id=request.frontend_id,
+            module_id=request.module_id,
             embedding_manager=embedding_manager,
             vector_store=vector_store,
             use_polling=request.use_polling
@@ -860,5 +860,5 @@ async def workspace_watch_status(workspace_id: str):
         watcher = workspace_watchers.get(workspace_id)
         return {
             "running": bool(watcher and watcher.is_running()),
-            "frontend_id": watcher.frontend_id if watcher else None
+            "module_id": watcher.module_id if watcher else None
         }

@@ -36,8 +36,8 @@ async def ensure_vscode_docs(
     Ensure VS Code extension docs are indexed into loco_rag_vscode.
     Uses hash-based caching to skip unchanged files.
     """
-    frontend_id = "vscode"
-    collection_name = f"loco_rag_{frontend_id}"
+    module_id = "vscode"
+    collection_name = f"loco_rag_{module_id}"
     docs_path = resolve_docs_path(path_override)
 
     vector_store.create_collection(
@@ -47,7 +47,7 @@ async def ensure_vscode_docs(
 
     if not docs_path.exists():
         logger.error("vscode_docs_missing",
-                    frontend_id=frontend_id,
+                    module_id=module_id,
                     path=str(docs_path))
         return {
             "status": "missing",
@@ -55,7 +55,7 @@ async def ensure_vscode_docs(
         }
 
     indexer = KnowledgeIndexer(
-        frontend_id=frontend_id,
+        module_id=module_id,
         embedding_manager=embedding_manager,
         vector_store=vector_store
     )

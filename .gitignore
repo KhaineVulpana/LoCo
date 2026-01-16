@@ -48,4 +48,5 @@ out/loco-agent-0.1.0.vsix
 #Ignore vscode AI rules
 .github\instructions\codacy.instructions.md
 out/loco-agent-0.1.0.vsix
+.claude/
 

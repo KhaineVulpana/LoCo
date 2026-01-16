@@ -169,10 +169,10 @@ async def lifespan(app: FastAPI):
                        embedding_model=runtime.embedding_manager.get_model_name(),
                        embedding_dimensions=runtime.embedding_manager.get_dimensions())
 
-            ace_frontends = ["vscode", "android", "3d-gen"]
-            logger.info("initializing_ace_collections", frontends=ace_frontends)
-            for frontend_id in ace_frontends:
-                collection_name = f"loco_ace_{frontend_id}"
+            ace_modules = ["vscode", "android", "3d-gen"]
+            logger.info("initializing_ace_collections", modules=ace_modules)
+            for module_id in ace_modules:
+                collection_name = f"loco_ace_{module_id}"
                 try:
                     runtime.vector_store.create_collection(
                         collection_name=collection_name,
@@ -180,7 +180,7 @@ async def lifespan(app: FastAPI):
                     )
                 except Exception as e:
                     logger.error("ace_collection_init_failed",
-                                frontend_id=frontend_id,
+                                module_id=module_id,
                                 error=str(e))
 
             with _suppress_boot_indexing_logs():
@@ -325,12 +325,13 @@ async def websocket_endpoint(
     """
     # Verify token if auth is enabled
     if settings.AUTH_ENABLED:
-        if not authorization:
-            await websocket.close(code=1008, reason="Unauthorized")
-            return
+        token = None
+        if authorization:
+            token = authorization.replace("Bearer ", "")
+        else:
+            token = websocket.query_params.get("token")
 
-        token = authorization.replace("Bearer ", "")
-        if not verify_token(token):
+        if not token or not verify_token(token):
             await websocket.close(code=1008, reason="Unauthorized")
             return
 
@@ -338,9 +339,105 @@ async def websocket_endpoint(
 
     logger.info("websocket_connected", session_id=session_id)
 
+    send_queue = asyncio.Queue()
+    processing_lock = asyncio.Lock()
+    agent_tasks = set()
+
+    async def send_loop() -> None:
+        try:
+            while True:
+                message = await send_queue.get()
+                if message is None:
+                    break
+                await websocket.send_json(message)
+        except Exception as exc:
+            logger.error("websocket_send_error", error=str(exc), session_id=session_id)
+
+    async def enqueue(message: dict) -> None:
+        await send_queue.put(message)
+
+    async def send_error(code: str, message_text: str) -> None:
+        await enqueue({
+            "type": "server.error",
+            "error": {
+                "code": code,
+                "message": message_text
+            }
+        })
+
+    async def get_or_create_agent(context: dict) -> Optional[Agent]:
+        async with active_agents_lock:
+            if session_id not in active_agents:
+                async with async_session_maker() as db:
+                    session_query = text("""
+                        SELECT workspace_id FROM sessions WHERE id = :session_id
+                    """)
+                    session_result = await db.execute(session_query, {"session_id": session_id})
+                    session_row = session_result.fetchone()
+
+                    if not session_row:
+                        await send_error("session_not_found", "Session not found")
+                        return None
+
+                    workspace_id = session_row[0]
+
+                    workspace_query = text("""
+                        SELECT path, name FROM workspaces WHERE id = :workspace_id
+                    """)
+                    workspace_result = await db.execute(workspace_query, {"workspace_id": workspace_id})
+                    workspace_row = workspace_result.fetchone()
+
+                    if not workspace_row:
+                        await send_error("workspace_not_found", "Workspace not found")
+                        return None
+
+                    workspace_path = await _resolve_workspace_path_for_session(
+                        db=db,
+                        workspace_id=workspace_id,
+                        stored_path=workspace_row[0],
+                        workspace_name=workspace_row[1]
+                    )
+
+                # Support legacy "frontend_id" context key.
+                module_id = context.get("module_id") or context.get("frontend_id", "vscode")
+
+                agent = Agent(
+                    workspace_path=workspace_path,
+                    module_id=module_id,
+                    workspace_id=workspace_id,
+                    db_session_maker=async_session_maker,
+                    model_manager=runtime.model_manager,
+                    embedding_manager=runtime.embedding_manager,
+                    vector_store=runtime.vector_store
+                )
+                active_agents[session_id] = agent
+                logger.info("agent_created",
+                           session_id=session_id,
+                           workspace_path=workspace_path,
+                           module_id=module_id,
+                           rag_enabled=agent.retriever is not None)
+            else:
+                agent = active_agents[session_id]
+
+        return agent
+
+    async def run_agent_message(user_msg: str, context: dict) -> None:
+        try:
+            agent = await get_or_create_agent(context)
+            if not agent:
+                return
+            async with processing_lock:
+                async for event in agent.process_message(user_msg, context):
+                    await enqueue(event)
+        except Exception as exc:
+            logger.error("agent_processing_error", error=str(exc), session_id=session_id)
+            await send_error("agent_error", f"Agent processing failed: {str(exc)}")
+
+    send_task = asyncio.create_task(send_loop())
+
     try:
         # Send server hello
-        await websocket.send_json({
+        await enqueue({
             "type": "server.hello",
             "protocol_version": settings.PROTOCOL_VERSION,
             "server_info": {
@@ -366,99 +463,26 @@ async def websocket_endpoint(
                 logger.info("client_hello_received", client_info=message.get("client_info"))
                 # Already sent server.hello above
 
+            elif message_type == "client.ping":
+                await enqueue({
+                    "type": "server.pong",
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                })
+
             elif message_type == "client.user_message":
                 # Handle user message
                 user_msg = message.get("message")
                 context = message.get("context", {})
+                if not isinstance(context, dict):
+                    context = {}
 
                 logger.info("user_message_received",
                           message=user_msg,
                           session_id=session_id)
 
-                # Get or create agent for this session (with lock to prevent race conditions)
-                async with active_agents_lock:
-                    if session_id not in active_agents:
-                        # Fetch session and workspace info from database
-                        async with async_session_maker() as db:
-                            # Get session's workspace_id
-                            session_query = text("""
-                                SELECT workspace_id FROM sessions WHERE id = :session_id
-                            """)
-                            session_result = await db.execute(session_query, {"session_id": session_id})
-                            session_row = session_result.fetchone()
-
-                            if not session_row:
-                                await websocket.send_json({
-                                    "type": "server.error",
-                                    "error": {
-                                        "code": "session_not_found",
-                                        "message": "Session not found"
-                                    }
-                                })
-                                continue
-
-                            workspace_id = session_row[0]
-
-                            # Get workspace path
-                            workspace_query = text("""
-                                SELECT path, name FROM workspaces WHERE id = :workspace_id
-                            """)
-                            workspace_result = await db.execute(workspace_query, {"workspace_id": workspace_id})
-                            workspace_row = workspace_result.fetchone()
-
-                            if not workspace_row:
-                                await websocket.send_json({
-                                    "type": "server.error",
-                                    "error": {
-                                        "code": "workspace_not_found",
-                                        "message": "Workspace not found"
-                                    }
-                                })
-                                continue
-
-                            workspace_path = await _resolve_workspace_path_for_session(
-                                db=db,
-                                workspace_id=workspace_id,
-                                stored_path=workspace_row[0],
-                                workspace_name=workspace_row[1]
-                            )
-
-                        # Determine frontend_id from context (default to vscode for now)
-                        # TODO: Get frontend_id from client_info in handshake
-                        frontend_id = context.get("frontend_id", "vscode")
-
-                        # Create agent for this session with RAG components and model manager
-                        agent = Agent(
-                            workspace_path=workspace_path,
-                            frontend_id=frontend_id,
-                            workspace_id=workspace_id,
-                            db_session_maker=async_session_maker,
-                            model_manager=runtime.model_manager,
-                            embedding_manager=runtime.embedding_manager,
-                            vector_store=runtime.vector_store
-                        )
-                        active_agents[session_id] = agent
-                        logger.info("agent_created",
-                                   session_id=session_id,
-                                   workspace_path=workspace_path,
-                                   frontend_id=frontend_id,
-                                   rag_enabled=agent.retriever is not None)
-                    else:
-                        agent = active_agents[session_id]
-
-                # Process message through agent
-                try:
-                    async for event in agent.process_message(user_msg, context):
-                        await websocket.send_json(event)
-                except Exception as e:
-                    logger.error("agent_processing_error", error=str(e), session_id=session_id)
-                    await websocket.send_json({
-                        "type": "server.error",
-                        "error": {
-                            "code": "agent_error",
-                            "message": f"Agent processing failed: {str(e)}"
-                        }
-                    })
+                task = asyncio.create_task(run_agent_message(user_msg, context))
+                agent_tasks.add(task)
+                task.add_done_callback(agent_tasks.discard)
 
             elif message_type == "client.cancel":
                 logger.info("client_cancelled", session_id=session_id)
@@ -479,18 +503,21 @@ async def websocket_endpoint(
 
     except WebSocketDisconnect:
         logger.info("websocket_disconnected", session_id=session_id)
-        # Clean up agent (with lock to prevent race conditions)
+    except Exception as e:
+        logger.error("websocket_error", error=str(e), session_id=session_id)
+        await websocket.close(code=1011, reason="Internal server error")
+    finally:
+        for task in list(agent_tasks):
+            task.cancel()
+        await asyncio.gather(*agent_tasks, return_exceptions=True)
+
+        await send_queue.put(None)
+        await asyncio.gather(send_task, return_exceptions=True)
+
         async with active_agents_lock:
             if session_id in active_agents:
                 del active_agents[session_id]
                 logger.info("agent_cleaned_up", session_id=session_id)
-    except Exception as e:
-        logger.error("websocket_error", error=str(e), session_id=session_id)
-        # Clean up agent (with lock to prevent race conditions)
-        async with active_agents_lock:
-            if session_id in active_agents:
-                del active_agents[session_id]
-        await websocket.close(code=1011, reason="Internal server error")
 
 
 if __name__ == "__main__":

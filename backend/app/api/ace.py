@@ -49,14 +49,14 @@ class AceFeedbackRequest(BaseModel):
     feedback: List[AceFeedbackItem]
 
 
-@router.get("/{frontend_id}/bullets")
+@router.get("/{module_id}/bullets")
 def list_bullets(
-    frontend_id: str,
+    module_id: str,
     limit: int = 1000,
     vector_store: VectorStore = Depends(get_vector_store)
 ):
-    """List ACE bullets for a frontend"""
-    collection_name = f"loco_ace_{frontend_id}"
+    """List ACE bullets for a module"""
+    collection_name = f"loco_ace_{module_id}"
 
     try:
         playbook = Playbook.load_from_vector_db(
@@ -66,25 +66,25 @@ def list_bullets(
         )
     except Exception as e:
         logger.error("ace_list_bullets_failed",
-                    frontend_id=frontend_id,
+                    module_id=module_id,
                     error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
     return {
         "success": True,
-        "frontend_id": frontend_id,
+        "module_id": module_id,
         "bullets": [b.to_dict() for b in playbook.get_all_bullets()]
     }
 
 
-@router.get("/{frontend_id}/metrics")
+@router.get("/{module_id}/metrics")
 def get_metrics(
-    frontend_id: str,
+    module_id: str,
     limit: int = 1000,
     vector_store: VectorStore = Depends(get_vector_store)
 ):
-    """Get ACE playbook metrics for a frontend"""
-    collection_name = f"loco_ace_{frontend_id}"
+    """Get ACE playbook metrics for a module"""
+    collection_name = f"loco_ace_{module_id}"
 
     try:
         playbook = Playbook.load_from_vector_db(
@@ -94,7 +94,7 @@ def get_metrics(
         )
     except Exception as e:
         logger.error("ace_metrics_failed",
-                    frontend_id=frontend_id,
+                    module_id=module_id,
                     error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -117,7 +117,7 @@ def get_metrics(
 
     return {
         "success": True,
-        "frontend_id": frontend_id,
+        "module_id": module_id,
         "total_bullets": len(bullets),
         "sections": sections,
         "helpful_total": helpful_total,
@@ -127,15 +127,15 @@ def get_metrics(
     }
 
 
-@router.post("/{frontend_id}/bullets")
+@router.post("/{module_id}/bullets")
 def create_bullet(
-    frontend_id: str,
+    module_id: str,
     request: AceBulletCreate,
     embedding_manager: EmbeddingManager = Depends(get_embedding_manager),
     vector_store: VectorStore = Depends(get_vector_store)
 ):
     """Create a new ACE bullet"""
-    collection_name = f"loco_ace_{frontend_id}"
+    collection_name = f"loco_ace_{module_id}"
 
     try:
         vector_store.create_collection(
@@ -168,26 +168,26 @@ def create_bullet(
         bullet = playbook.get_bullet_by_id(bullet_id)
         return {
             "success": True,
-            "frontend_id": frontend_id,
+            "module_id": module_id,
             "bullet": bullet.to_dict() if bullet else None
         }
     except Exception as e:
         logger.error("ace_create_bullet_failed",
-                    frontend_id=frontend_id,
+                    module_id=module_id,
                     error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/{frontend_id}/bullets/{bullet_id}")
+@router.put("/{module_id}/bullets/{bullet_id}")
 def update_bullet(
-    frontend_id: str,
+    module_id: str,
     bullet_id: str,
     request: AceBulletUpdate,
     embedding_manager: EmbeddingManager = Depends(get_embedding_manager),
     vector_store: VectorStore = Depends(get_vector_store)
 ):
     """Update an existing ACE bullet"""
-    collection_name = f"loco_ace_{frontend_id}"
+    collection_name = f"loco_ace_{module_id}"
 
     try:
         playbook = Playbook.load_from_vector_db(
@@ -225,27 +225,27 @@ def update_bullet(
         updated = playbook.get_bullet_by_id(bullet_id)
         return {
             "success": True,
-            "frontend_id": frontend_id,
+            "module_id": module_id,
             "bullet": updated.to_dict() if updated else None
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error("ace_update_bullet_failed",
-                    frontend_id=frontend_id,
+                    module_id=module_id,
                     bullet_id=bullet_id,
                     error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/{frontend_id}/bullets/{bullet_id}")
+@router.delete("/{module_id}/bullets/{bullet_id}")
 def delete_bullet(
-    frontend_id: str,
+    module_id: str,
     bullet_id: str,
     vector_store: VectorStore = Depends(get_vector_store)
 ):
     """Delete an ACE bullet"""
-    collection_name = f"loco_ace_{frontend_id}"
+    collection_name = f"loco_ace_{module_id}"
 
     playbook = Playbook()
     success = playbook.delete_bullet_from_vector_db(
@@ -259,20 +259,20 @@ def delete_bullet(
 
     return {
         "success": True,
-        "frontend_id": frontend_id,
+        "module_id": module_id,
         "bullet_id": bullet_id
     }
 
 
-@router.post("/{frontend_id}/retrieve")
+@router.post("/{module_id}/retrieve")
 def retrieve_bullets(
-    frontend_id: str,
+    module_id: str,
     request: AceRetrieveRequest,
     embedding_manager: EmbeddingManager = Depends(get_embedding_manager),
     vector_store: VectorStore = Depends(get_vector_store)
 ):
     """Retrieve relevant ACE bullets for a query"""
-    collection_name = f"loco_ace_{frontend_id}"
+    collection_name = f"loco_ace_{module_id}"
     playbook = Playbook()
 
     results = playbook.retrieve_relevant_bullets(
@@ -286,7 +286,7 @@ def retrieve_bullets(
 
     return {
         "success": True,
-        "frontend_id": frontend_id,
+        "module_id": module_id,
         "results": [
             {
                 "score": score,
@@ -297,15 +297,15 @@ def retrieve_bullets(
     }
 
 
-@router.post("/{frontend_id}/feedback")
+@router.post("/{module_id}/feedback")
 def apply_feedback(
-    frontend_id: str,
+    module_id: str,
     request: AceFeedbackRequest,
     embedding_manager: EmbeddingManager = Depends(get_embedding_manager),
     vector_store: VectorStore = Depends(get_vector_store)
 ):
     """Apply helpful/harmful feedback to bullets"""
-    collection_name = f"loco_ace_{frontend_id}"
+    collection_name = f"loco_ace_{module_id}"
 
     try:
         playbook = Playbook.load_from_vector_db(
@@ -329,12 +329,12 @@ def apply_feedback(
 
         return {
             "success": True,
-            "frontend_id": frontend_id,
+            "module_id": module_id,
             "updated": len(updated_ids),
             "skipped": max(0, len(request.feedback) - len(updated_ids))
         }
     except Exception as e:
         logger.error("ace_feedback_failed",
-                    frontend_id=frontend_id,
+                    module_id=module_id,
                     error=str(e))
         raise HTTPException(status_code=500, detail=str(e))

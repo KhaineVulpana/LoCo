@@ -37,7 +37,7 @@ async def test_embedding_cache_reuses_embeddings(tmp_path, fake_vector_store, as
     async with async_session_maker() as session:
         indexer = FileIndexer(
             workspace_id='ws-cache',
-            frontend_id='vscode',
+            module_id='vscode',
             workspace_path=str(tmp_path),
             embedding_manager=embedding_manager,
             vector_store=fake_vector_store,
@@ -64,7 +64,7 @@ async def test_index_file_skips_unchanged(tmp_path, fake_vector_store, async_ses
     async with async_session_maker() as session:
         indexer = FileIndexer(
             workspace_id='ws-skip',
-            frontend_id='vscode',
+            module_id='vscode',
             workspace_path=str(tmp_path),
             embedding_manager=embedding_manager,
             vector_store=fake_vector_store,

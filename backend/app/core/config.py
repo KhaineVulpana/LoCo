@@ -51,6 +51,21 @@ class Settings(BaseSettings):
     REMOTE_DOCS_ENABLED: bool = True
     REMOTE_DOCS_REFRESH_HOURS: int = 24
 
+    # Web tools
+    SERPAPI_API_KEY: Optional[str] = None
+    SERPAPI_BASE_URL: str = "https://serpapi.com/search.json"
+    SERPAPI_ENGINE: str = "google"
+    WEB_FETCH_USER_AGENT: str = "LoCo-Agent/0.1"
+
+    # Repo hosting integrations
+    GITHUB_TOKEN: Optional[str] = None
+    GITHUB_API_BASE_URL: str = "https://api.github.com"
+    GITLAB_TOKEN: Optional[str] = None
+    GITLAB_API_BASE_URL: str = "https://gitlab.com/api/v4"
+    JIRA_BASE_URL: Optional[str] = None
+    JIRA_EMAIL: Optional[str] = None
+    JIRA_API_TOKEN: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True

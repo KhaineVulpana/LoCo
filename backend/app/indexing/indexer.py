@@ -43,7 +43,7 @@ class FileIndexer:
     def __init__(
         self,
         workspace_id: str,
-        frontend_id: str,  # Frontend for collection scoping
+        module_id: str,  # Module for collection scoping
         workspace_path: str,
         embedding_manager: EmbeddingManager,
         vector_store: VectorStore,
@@ -54,14 +54,14 @@ class FileIndexer:
 
         Args:
             workspace_id: Unique workspace identifier
-            frontend_id: Frontend identifier for collection scoping (e.g., "vscode", "3d-gen")
+            module_id: Module identifier for collection scoping (e.g., "vscode", "3d-gen")
             workspace_path: Absolute path to workspace root
             embedding_manager: Embedding manager instance
             vector_store: Vector store instance
             db_session: Database session for metadata storage
         """
         self.workspace_id = workspace_id
-        self.frontend_id = frontend_id
+        self.module_id = module_id
         self.workspace_path = Path(workspace_path)
         self.embedder = embedding_manager
         self.vector_store = vector_store
@@ -74,7 +74,7 @@ class FileIndexer:
 
         logger.info("indexer_initialized",
                    workspace_id=workspace_id,
-                   frontend_id=frontend_id,
+                   module_id=module_id,
                    workspace_path=str(workspace_path))
 
     def _get_collection_name(self) -> str:
@@ -863,7 +863,7 @@ class FileIndexer:
             # FIXED #4: Store minimal payload, retrieve content from SQLite
             payload = {
                 "workspace_id": self.workspace_id,
-                "frontend_id": self.frontend_id,
+                "module_id": self.module_id,
                 "file_path": rel_path_str,
                 "chunk_index": idx,
                 "chunk_type": chunk.chunk_type,
@@ -933,7 +933,7 @@ class FileIndexer:
         """
         logger.info("workspace_indexing_start",
                    workspace_id=self.workspace_id,
-                   frontend_id=self.frontend_id)
+                   module_id=self.module_id)
 
         # Ensure collection exists
         collection_name = self._get_collection_name()
@@ -1002,5 +1002,5 @@ class FileIndexer:
             "indexed": indexed,
             "failed": failed,
             "total_chunks": total_chunks,
-            "frontend_id": self.frontend_id
+            "module_id": self.module_id
         }

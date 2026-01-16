@@ -18,6 +18,6 @@ Context budgets
 - Separate budgets exist for RAG, workspace, and ACE.
 - The agent truncates when the budget is exceeded.
 
-Frontend scope
-- Use `frontend_id = "vscode"` for extension sessions.
+Module scope
+- Use `module_id = "vscode"` for extension sessions.
 - Knowledge collection: `loco_rag_vscode`.

@@ -22,7 +22,7 @@ async def test_indexer_persists_symbols(tmp_path, fake_embedding_manager, fake_v
     async with async_session_maker() as session:
         indexer = FileIndexer(
             workspace_id="ws-symbols",
-            frontend_id="vscode",
+            module_id="vscode",
             workspace_path=str(tmp_path),
             embedding_manager=fake_embedding_manager,
             vector_store=fake_vector_store,

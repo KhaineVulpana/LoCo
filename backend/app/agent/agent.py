@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.tools.base import Tool, ToolRegistry
 from app.tools import ReadFileTool, WriteFileTool, ListFilesTool, ApplyPatchTool, RunCommandTool, RunTestsTool
 from app.tools import ReportPlanTool, ProposePatchTool, ProposeDiffTool
+from app.tools import WebFetchTool, WebSearchTool, RepoHostingTool, HeadlessBrowserTool, ReadOnlySqlTool
 from app.ace import Playbook, Reflector, Curator
 
 logger = structlog.get_logger()
@@ -32,7 +33,7 @@ class Agent:
     def __init__(
         self,
         workspace_path: str,
-        frontend_id: str = "vscode",  # Which frontend is using this agent
+        module_id: str = "vscode",  # Which module is using this agent
         workspace_id: Optional[str] = None,
         db_session_maker: Optional[Any] = None,
         model_manager: Optional[ModelManager] = None,
@@ -41,10 +42,10 @@ class Agent:
         enable_ace: bool = True  # Re-enabled after fixing duplicate response issue with IsolatedLLMClient
     ):
         self.workspace_path = workspace_path
-        self.frontend_id = frontend_id
+        self.module_id = module_id
         self.workspace_id = workspace_id
         self.db_session_maker = db_session_maker
-        self.ace_collection = f"loco_ace_{frontend_id}"
+        self.ace_collection = f"loco_ace_{module_id}"
         self.model_manager = model_manager
         self.tool_registry = ToolRegistry()
         self.conversation_history: List[Dict[str, str]] = []
@@ -57,13 +58,13 @@ class Agent:
 
         if embedding_manager and vector_store:
             self.retriever = Retriever(
-                frontend_id=frontend_id,
+                module_id=module_id,
                 embedding_manager=embedding_manager,
                 vector_store=vector_store,
                 db_session_maker=db_session_maker,
                 workspace_path=workspace_path
             )
-            logger.info("rag_enabled", frontend_id=frontend_id)
+            logger.info("rag_enabled", module_id=module_id)
         else:
             logger.warning("rag_disabled", reason="No embedding manager or vector store provided")
 
@@ -78,11 +79,11 @@ class Agent:
                         collection_name=self.ace_collection
                     )
                     logger.info("ace_playbook_loaded",
-                               frontend_id=frontend_id,
+                               module_id=module_id,
                                bullets=self.playbook.get_bullet_count())
                 except Exception as e:
                     logger.error("ace_playbook_load_failed",
-                                frontend_id=frontend_id,
+                                module_id=module_id,
                                 error=str(e))
                     self.playbook = Playbook()
             else:
@@ -98,9 +99,9 @@ class Agent:
         self._init_tools()
 
         # System prompt - qwen3-coder doesn't support tool calling with system prompts
-        # Keep empty for coding frontends; add 3d-gen guidance for mesh output.
+        # Keep empty for coding modules; add 3d-gen guidance for mesh output.
         self.system_prompt = ""
-        if self.frontend_id == "3d-gen":
+        if self.module_id == "3d-gen":
             self.system_prompt = (
                 "You are the LoCo 3D-Gen assistant. Use retrieved examples to derive geometry, "
                 "and return a mesh preview plus optional Unity C# code. "
@@ -129,7 +130,7 @@ class Agent:
             LLMClient if model is loaded, None otherwise
         """
         if not self.model_manager:
-            logger.error("no_model_manager", frontend_id=self.frontend_id)
+            logger.error("no_model_manager", module_id=self.module_id)
             return None
 
         return self.model_manager.get_current_model()
@@ -363,6 +364,14 @@ class Agent:
         ]
         return any(token in lowered for token in network_tokens)
 
+    def _is_network_tool(self, tool_name: str) -> bool:
+        return tool_name in {
+            "web_fetch",
+            "web_search",
+            "repo_hosting",
+            "headless_browser"
+        }
+
     def _create_approval_request(self) -> Tuple[str, asyncio.Future]:
         request_id = str(uuid.uuid4())
         future = asyncio.get_running_loop().create_future()
@@ -405,6 +414,15 @@ class Agent:
         self.tool_registry.register(ReportPlanTool())
         self.tool_registry.register(ProposePatchTool(self.workspace_path))
         self.tool_registry.register(ProposeDiffTool(self.workspace_path))
+        self.tool_registry.register(WebFetchTool(
+            module_id=self.module_id,
+            embedding_manager=self.embedding_manager,
+            vector_store=self.vector_store
+        ))
+        self.tool_registry.register(WebSearchTool())
+        self.tool_registry.register(RepoHostingTool())
+        self.tool_registry.register(HeadlessBrowserTool())
+        self.tool_registry.register(ReadOnlySqlTool())
 
         logger.info("agent_tools_initialized",
                    tool_count=len(self.tool_registry.tools),
@@ -541,14 +559,14 @@ class Agent:
                                 self._used_bullet_ids.append(bullet_id)
 
                         logger.info("ace_bullets_retrieved",
-                                   frontend_id=self.frontend_id,
+                                   module_id=self.module_id,
                                    bullets=len(ace_results))
                     else:
-                        logger.info("no_ace_bullets_found", frontend_id=self.frontend_id)
+                        logger.info("no_ace_bullets_found", module_id=self.module_id)
 
                 except Exception as e:
                     logger.error("ace_bullet_retrieval_failed",
-                                frontend_id=self.frontend_id,
+                                module_id=self.module_id,
                                 error=str(e))
 
             if rag_results_count:
@@ -792,28 +810,35 @@ class Agent:
                             if tool_name == "list_files" and result.get("success"):
                                 result = self._filter_list_result(result, policy)
                     elif tool:
-                        approval_required = self._requires_tool_approval(tool_name, policy, tool)
-                        if approval_required:
-                            request_id, _future = self._create_approval_request()
-                            prompt = tool.approval_prompt(tool_args)
-                            yield {
-                                "type": "tool.request_approval",
-                                "request_id": request_id,
-                                "tool": tool_name,
-                                "arguments": tool_args,
-                                "message": prompt
+                        if self._is_network_tool(tool_name) and not policy.get("network_enabled"):
+                            result = {
+                                "success": False,
+                                "error": "Tool blocked by network policy",
+                                "denied_by_policy": True
                             }
-                            approved = await self._await_approval(request_id)
-                            if not approved:
-                                result = {
-                                    "success": False,
-                                    "error": "Tool execution denied",
-                                    "requires_approval": True
+                        else:
+                            approval_required = self._requires_tool_approval(tool_name, policy, tool)
+                            if approval_required:
+                                request_id, _future = self._create_approval_request()
+                                prompt = tool.approval_prompt(tool_args)
+                                yield {
+                                    "type": "tool.request_approval",
+                                    "request_id": request_id,
+                                    "tool": tool_name,
+                                    "arguments": tool_args,
+                                    "message": prompt
                                 }
+                                approved = await self._await_approval(request_id)
+                                if not approved:
+                                    result = {
+                                        "success": False,
+                                        "error": "Tool execution denied",
+                                        "requires_approval": True
+                                    }
+                                else:
+                                    result = await self.tool_registry.execute_tool(tool_name, tool_args)
                             else:
                                 result = await self.tool_registry.execute_tool(tool_name, tool_args)
-                        else:
-                            result = await self.tool_registry.execute_tool(tool_name, tool_args)
                     else:
                         result = await self.tool_registry.execute_tool(tool_name, tool_args)
 
@@ -1080,6 +1105,34 @@ class Agent:
                     "truncated": True
                 }
 
+        if tool_name in ("web_fetch", "headless_browser"):
+            content = result.get("text") or result.get("html") or ""
+            lines = content.splitlines()
+            preview_lines = lines[:40]
+            preview = "\n".join(preview_lines)
+            if len(preview) > 2000:
+                preview = preview[:2000]
+            return {
+                "success": True,
+                "url": result.get("url"),
+                "title": result.get("title"),
+                "preview": preview,
+                "total_lines": len(lines),
+                "truncated": len(lines) > 40 or len(content) > 2000,
+                "ingested": result.get("ingested")
+            }
+
+        if tool_name == "read_only_sql":
+            rows = result.get("rows", [])
+            if len(rows) > 20:
+                return {
+                    "success": True,
+                    "columns": result.get("columns", []),
+                    "rows": rows[:20],
+                    "row_count": result.get("row_count"),
+                    "truncated": True
+                }
+
         # Default: return as-is for small results
         return result
 
@@ -1120,6 +1173,26 @@ class Agent:
                     "size": result.get("size"),
                     "note": f"Content truncated. Full file is {result.get('size')} chars."
                 }
+                return json.dumps(truncated)
+
+        if tool_name in ("web_fetch", "headless_browser"):
+            text = result.get("text") or ""
+            html = result.get("html") or ""
+            if len(text) > 5000 or len(html) > 5000:
+                truncated = dict(result)
+                if text:
+                    truncated["text"] = text[:5000]
+                if html:
+                    truncated["html"] = html[:5000]
+                truncated["note"] = "Content truncated for summary."
+                return json.dumps(truncated)
+
+        if tool_name == "read_only_sql":
+            rows = result.get("rows", [])
+            if len(rows) > 20:
+                truncated = dict(result)
+                truncated["rows"] = rows[:20]
+                truncated["note"] = "Rows truncated for summary."
                 return json.dumps(truncated)
 
         # Default: return as-is

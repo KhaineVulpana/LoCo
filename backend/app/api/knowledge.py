@@ -32,25 +32,25 @@ class RetrieveRequest(BaseModel):
     score_threshold: float = 0.5
 
 
-@router.post("/{frontend_id}/index-docs")
+@router.post("/{module_id}/index-docs")
 async def index_documentation(
-    frontend_id: str,
+    module_id: str,
     request: IndexDocsRequest,
     embedding_manager: EmbeddingManager = Depends(get_embedding_manager),
     vector_store: VectorStore = Depends(get_vector_store)
 ):
     """
-    Index documentation files for a frontend
+    Index documentation files for a module
 
     Args:
-        frontend_id: Frontend identifier (vscode, android, 3d-gen)
+        module_id: Module identifier (vscode, android, 3d-gen)
         request: Contains docs_path
     """
-    logger.info("index_docs_request", frontend_id=frontend_id, path=request.docs_path)
+    logger.info("index_docs_request", module_id=module_id, path=request.docs_path)
 
     try:
         indexer = KnowledgeIndexer(
-            frontend_id=frontend_id,
+            module_id=module_id,
             embedding_manager=embedding_manager,
             vector_store=vector_store
         )
@@ -59,34 +59,34 @@ async def index_documentation(
 
         return {
             "success": True,
-            "frontend_id": frontend_id,
+            "module_id": module_id,
             "stats": stats
         }
 
     except Exception as e:
-        logger.error("index_docs_failed", frontend_id=frontend_id, error=str(e))
+        logger.error("index_docs_failed", module_id=module_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{frontend_id}/index-training")
+@router.post("/{module_id}/index-training")
 async def index_training_data(
-    frontend_id: str,
+    module_id: str,
     request: IndexTrainingRequest,
     embedding_manager: EmbeddingManager = Depends(get_embedding_manager),
     vector_store: VectorStore = Depends(get_vector_store)
 ):
     """
-    Index training data (JSONL) for a frontend
+    Index training data (JSONL) for a module
 
     Args:
-        frontend_id: Frontend identifier (vscode, android, 3d-gen)
+        module_id: Module identifier (vscode, android, 3d-gen)
         request: Contains jsonl_path
     """
-    logger.info("index_training_request", frontend_id=frontend_id, path=request.jsonl_path)
+    logger.info("index_training_request", module_id=module_id, path=request.jsonl_path)
 
     try:
         indexer = KnowledgeIndexer(
-            frontend_id=frontend_id,
+            module_id=module_id,
             embedding_manager=embedding_manager,
             vector_store=vector_store
         )
@@ -95,30 +95,30 @@ async def index_training_data(
 
         return {
             "success": True,
-            "frontend_id": frontend_id,
+            "module_id": module_id,
             "stats": stats
         }
 
     except Exception as e:
-        logger.error("index_training_failed", frontend_id=frontend_id, error=str(e))
+        logger.error("index_training_failed", module_id=module_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{frontend_id}/stats")
+@router.get("/{module_id}/stats")
 async def get_knowledge_stats(
-    frontend_id: str,
+    module_id: str,
     embedding_manager: EmbeddingManager = Depends(get_embedding_manager),
     vector_store: VectorStore = Depends(get_vector_store)
 ):
     """
-    Get statistics about indexed knowledge for a frontend
+    Get statistics about indexed knowledge for a module
 
     Args:
-        frontend_id: Frontend identifier (vscode, android, 3d-gen)
+        module_id: Module identifier (vscode, android, 3d-gen)
     """
     try:
         retriever = Retriever(
-            frontend_id=frontend_id,
+            module_id=module_id,
             embedding_manager=embedding_manager,
             vector_store=vector_store
         )
@@ -131,13 +131,13 @@ async def get_knowledge_stats(
         }
 
     except Exception as e:
-        logger.error("get_stats_failed", frontend_id=frontend_id, error=str(e))
+        logger.error("get_stats_failed", module_id=module_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{frontend_id}/retrieve")
+@router.post("/{module_id}/retrieve")
 async def retrieve_knowledge(
-    frontend_id: str,
+    module_id: str,
     request: RetrieveRequest,
     embedding_manager: EmbeddingManager = Depends(get_embedding_manager),
     vector_store: VectorStore = Depends(get_vector_store)
@@ -146,12 +146,12 @@ async def retrieve_knowledge(
     Retrieve relevant knowledge for a query (for testing/debugging)
 
     Args:
-        frontend_id: Frontend identifier (vscode, android, 3d-gen)
+        module_id: Module identifier (vscode, android, 3d-gen)
         request: Contains query and retrieval params
     """
     try:
         retriever = Retriever(
-            frontend_id=frontend_id,
+            module_id=module_id,
             embedding_manager=embedding_manager,
             vector_store=vector_store
         )
@@ -176,27 +176,27 @@ async def retrieve_knowledge(
         }
 
     except Exception as e:
-        logger.error("retrieve_failed", frontend_id=frontend_id, error=str(e))
+        logger.error("retrieve_failed", module_id=module_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/{frontend_id}")
+@router.delete("/{module_id}")
 async def clear_knowledge(
-    frontend_id: str,
+    module_id: str,
     embedding_manager: EmbeddingManager = Depends(get_embedding_manager),
     vector_store: VectorStore = Depends(get_vector_store)
 ):
     """
-    Clear all knowledge for a frontend
+    Clear all knowledge for a module
 
     Args:
-        frontend_id: Frontend identifier (vscode, android, 3d-gen)
+        module_id: Module identifier (vscode, android, 3d-gen)
     """
-    logger.info("clear_knowledge_request", frontend_id=frontend_id)
+    logger.info("clear_knowledge_request", module_id=module_id)
 
     try:
         indexer = KnowledgeIndexer(
-            frontend_id=frontend_id,
+            module_id=module_id,
             embedding_manager=embedding_manager,
             vector_store=vector_store
         )
@@ -205,10 +205,10 @@ async def clear_knowledge(
 
         return {
             "success": True,
-            "frontend_id": frontend_id,
+            "module_id": module_id,
             "message": "Knowledge cleared successfully"
         }
 
     except Exception as e:
-        logger.error("clear_knowledge_failed", frontend_id=frontend_id, error=str(e))
+        logger.error("clear_knowledge_failed", module_id=module_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))

@@ -88,7 +88,7 @@ async def test_index_workspace_updates_status(
         workspace_id = register.json()['id']
 
         index_response = await client.post(f'/v1/workspaces/{workspace_id}/index', json={
-            'frontend_id': 'vscode'
+            'module_id': 'vscode'
         })
         assert index_response.status_code == 200
         stats = index_response.json()['stats']

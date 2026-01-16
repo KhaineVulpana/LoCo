@@ -21,8 +21,8 @@ Models
 - PUT /v1/models/current
 
 Knowledge
-- POST /v1/knowledge/{frontend_id}/index-docs
-- POST /v1/knowledge/{frontend_id}/index-training
-- GET /v1/knowledge/{frontend_id}/stats
-- POST /v1/knowledge/{frontend_id}/retrieve
-- POST /v1/knowledge/{frontend_id}/clear
+- POST /v1/knowledge/{module_id}/index-docs
+- POST /v1/knowledge/{module_id}/index-training
+- GET /v1/knowledge/{module_id}/stats
+- POST /v1/knowledge/{module_id}/retrieve
+- POST /v1/knowledge/{module_id}/clear

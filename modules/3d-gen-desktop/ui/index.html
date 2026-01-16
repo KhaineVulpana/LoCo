@@ -10,6 +10,14 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Source+Code+Pro:wght@400;600&display=swap"
       rel="stylesheet"
     />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three.module.js",
+          "three/addons/": "./vendor/examples/jsm/"
+        }
+      }
+    </script>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -20,10 +28,14 @@
             <p class="eyebrow">LoCo</p>
             <h1>3D-Gen</h1>
           </div>
-          <button id="new-session-btn" class="ghost-btn">New chat</button>
+          <div class="session-actions">
+            <button id="settings-open" class="ghost-btn">Settings</button>
+            <button id="logs-open" class="ghost-btn">Logs</button>
+            <button id="new-session-btn" class="ghost-btn">New chat</button>
+          </div>
         </div>
         <div class="session-meta">
-          <span class="frontend-pill">frontend: 3d-gen</span>
+          <span class="module-pill">module: 3d-gen</span>
           <span id="status-pill" class="status-pill offline">offline</span>
         </div>
         <div class="session-list" id="session-list"></div>
@@ -37,6 +49,10 @@
           </div>
           <span class="session-hint">Chat + 3D preview</span>
         </header>
+        <div id="error-banner" class="error-banner">
+          <span id="error-banner-text">Connection issues detected.</span>
+          <button id="error-banner-dismiss" class="ghost-btn">Dismiss</button>
+        </div>
 
         <section class="connection-card">
           <div class="connection-header">
@@ -60,6 +76,17 @@
           </div>
         </section>
 
+        <section class="prompt-shelf">
+          <div class="prompt-group">
+            <p class="prompt-label">Templates</p>
+            <div id="prompt-templates" class="chip-row"></div>
+          </div>
+          <div class="prompt-group">
+            <p class="prompt-label">Recent</p>
+            <div id="prompt-history" class="chip-row"></div>
+          </div>
+        </section>
+
         <section class="messages" id="messages"></section>
 
         <form id="composer" class="composer">
@@ -68,26 +95,56 @@
             rows="3"
             placeholder="Describe a 3D asset..."
           ></textarea>
-          <button type="submit" class="primary-btn">Send</button>
+          <div class="composer-actions">
+            <div class="composer-actions-left">
+              <span class="composer-hint">Tip: Ctrl+Enter sends</span>
+              <button id="copy-last-prompt" type="button" class="ghost-btn">
+                Copy last prompt
+              </button>
+            </div>
+            <button type="submit" class="primary-btn">Send</button>
+          </div>
         </form>
       </main>
+
+      <div id="panel-divider" class="panel-divider" role="separator" aria-orientation="vertical" tabindex="0"></div>
 
       <section class="viewer-panel">
         <header class="viewer-header">
           <div>
             <h2>Mesh Preview</h2>
-            <p id="viewer-status">Waiting for mesh JSON…</p>
+            <p id="viewer-status">Waiting for mesh JSON...</p>
           </div>
           <div class="viewer-actions">
             <button id="reset-view" class="ghost-btn">Reset view</button>
             <button id="toggle-wireframe" class="ghost-btn">Wireframe</button>
+            <button id="toggle-grid" class="ghost-btn">Grid</button>
+            <label class="select-field">
+              Lighting
+              <select id="lighting-preset">
+                <option value="studio">Studio</option>
+                <option value="noir">Noir</option>
+                <option value="soft">Soft</option>
+              </select>
+            </label>
+            <button id="import-mesh" class="ghost-btn">Import</button>
+            <button id="export-glb" class="ghost-btn">Export GLB</button>
+            <button id="export-stl" class="ghost-btn">Export STL</button>
+            <button id="copy-mesh-stats" class="ghost-btn">Copy stats</button>
           </div>
         </header>
         <div class="viewer-surface">
           <canvas id="viewer"></canvas>
           <div class="viewer-overlay" id="viewer-overlay">
-            <p>Send a prompt to generate a mesh.</p>
+            <div class="viewer-illustration" aria-hidden="true">
+              <span class="ring"></span>
+              <span class="spark"></span>
+              <span class="cube"></span>
+            </div>
+            <p id="viewer-overlay-text">Send a prompt to generate a mesh.</p>
+            <p id="viewer-overlay-hint" class="viewer-overlay-hint">Drop a mesh file to import.</p>
           </div>
+          <div id="drop-overlay" class="drop-overlay">Drop to import</div>
         </div>
         <div class="viewer-meta" id="viewer-meta">
           <div>
@@ -106,6 +163,78 @@
       </section>
     </div>
 
+    <div id="settings-overlay" class="settings-overlay" aria-hidden="true">
+      <div class="settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="settings-header">
+          <div>
+            <p class="eyebrow">Preferences</p>
+            <h2 id="settings-title">Settings</h2>
+          </div>
+          <button id="settings-close" class="ghost-btn">Close</button>
+        </div>
+        <form id="settings-form" class="settings-form">
+          <section class="settings-section">
+            <div class="settings-section-header">
+              <h3>Connection</h3>
+              <p class="settings-note">Changes apply the next time you connect.</p>
+            </div>
+            <div class="settings-grid">
+              <label>
+                Backend URL
+                <input id="settings-server-url" type="text" placeholder="http://localhost:3199" />
+              </label>
+              <label>
+                Workspace Path
+                <input id="settings-workspace-path" type="text" placeholder="C:\Projects\3d-gen" />
+              </label>
+              <label>
+                Token (optional)
+                <input id="settings-auth-token" type="password" placeholder="paste token if enabled" />
+              </label>
+              <label class="toggle-field">
+                Auto-connect on launch
+                <input id="settings-auto-connect" type="checkbox" />
+              </label>
+              <label class="toggle-field">
+                Auto-reconnect
+                <input id="settings-auto-reconnect" type="checkbox" />
+              </label>
+            </div>
+          </section>
+          <section class="settings-section">
+            <div class="settings-section-header">
+              <h3>Viewer Defaults</h3>
+              <p class="settings-note">These sync with the viewer controls.</p>
+            </div>
+            <div class="settings-grid">
+              <label class="toggle-field">
+                Show grid
+                <input id="settings-grid" type="checkbox" />
+              </label>
+              <label class="toggle-field">
+                Wireframe
+                <input id="settings-wireframe" type="checkbox" />
+              </label>
+              <label class="select-field">
+                Lighting
+                <select id="settings-lighting">
+                  <option value="studio">Studio</option>
+                  <option value="noir">Noir</option>
+                  <option value="soft">Soft</option>
+                </select>
+              </label>
+            </div>
+          </section>
+          <div class="settings-actions">
+            <button id="settings-reset" type="button" class="ghost-btn">Reset defaults</button>
+            <button type="submit" class="primary-btn">Save settings</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <input id="import-file" type="file" accept=".json,.glb,.gltf,.stl" hidden />
+    <div id="toast" class="toast"></div>
     <script type="module" src="app.js"></script>
   </body>
 </html>

@@ -73,8 +73,8 @@ async def ensure_shared_knowledge(
     Ensure shared coding docs are indexed into loco_rag_shared.
     Uses hash-based caching to skip unchanged files.
     """
-    frontend_id = "shared"
-    collection_name = f"loco_rag_{frontend_id}"
+    module_id = "shared"
+    collection_name = f"loco_rag_{module_id}"
     docs_dirs, docs_files = resolve_sources(dir_overrides, file_overrides)
 
     # Create collection if it doesn't exist (idempotent)
@@ -93,7 +93,7 @@ async def ensure_shared_knowledge(
         }
 
     indexer = KnowledgeIndexer(
-        frontend_id=frontend_id,
+        module_id=module_id,
         embedding_manager=embedding_manager,
         vector_store=vector_store
     )

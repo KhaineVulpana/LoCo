@@ -1,7 +1,7 @@
 # LoCo 3D-Gen Desktop (Tauri)
 
-Desktop frontend for the 3D-Gen experience. This uses the same backend server
-and sends `frontend_id: "3d-gen"` with every message so the correct RAG/ACE
+Desktop module for the 3D-Gen experience. This uses the same backend server
+and sends `module_id: "3d-gen"` with every message so the correct RAG/ACE
 collections are used.
 
 ## What this app does
@@ -9,6 +9,8 @@ collections are used.
 - Chat on the left, 3D preview on the right.
 - Listens for mesh JSON in assistant responses and renders it with Three.js.
 - Connects to the existing FastAPI backend over WebSocket.
+- Supports mesh import (JSON/GLB/GLTF/STL) and export (GLB/STL).
+- Saves chat sessions, prompt history, and viewer settings locally.
 
 ## Prereqs
 
@@ -58,6 +60,40 @@ The viewer looks for a JSON block in assistant output:
 ```
 
 The renderer also accepts top-level `vertices`/`triangles` without a `mesh` wrapper.
+
+## Testing
+
+Unit + UI structure tests:
+
+```bash
+cd modules/3d-gen-desktop
+npm test
+```
+
+Integration UI tests (Playwright):
+
+```powershell
+cd modules/3d-gen-desktop
+$env:RUN_INTEGRATION_TESTS = "1"
+npm run test:integration
+```
+
+If you have not installed browsers yet:
+
+```powershell
+cd modules/3d-gen-desktop
+npx playwright install
+```
+
+Tauri UI tests (requires a built app and tauri-driver running):
+
+```powershell
+cd modules/3d-gen-desktop
+$env:TAURI_APP_PATH = "C:\\path\\to\\loco-3d-gen.exe"
+$env:TAURI_DRIVER_URL = "http://localhost:4444"
+$env:RUN_TAURI_UI_TESTS = "1"
+npm run test:tauri
+```
 
 ## Android later
 

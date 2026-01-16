@@ -36,8 +36,8 @@ async def ensure_3d_gen_training_data(
     Ensure 3D-gen training data is indexed into loco_rag_3d-gen.
     Uses hash-based caching to skip unchanged files.
     """
-    frontend_id = "3d-gen"
-    collection_name = f"loco_rag_{frontend_id}"
+    module_id = "3d-gen"
+    collection_name = f"loco_rag_{module_id}"
     training_path = resolve_training_path(path_override)
 
     vector_store.create_collection(
@@ -47,7 +47,7 @@ async def ensure_3d_gen_training_data(
 
     if not training_path.exists():
         logger.error("training_data_missing",
-                    frontend_id=frontend_id,
+                    module_id=module_id,
                     path=str(training_path))
         return {
             "status": "missing",
@@ -55,7 +55,7 @@ async def ensure_3d_gen_training_data(
         }
 
     indexer = KnowledgeIndexer(
-        frontend_id=frontend_id,
+        module_id=module_id,
         embedding_manager=embedding_manager,
         vector_store=vector_store
     )

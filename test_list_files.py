@@ -22,7 +22,7 @@ async def test_list_files():
             json={
                 "path": r"c:\Users\Kevin\Projects\LoCo",
                 "name": "LoCo Test",
-                "frontend_id": "vscode",
+                "module_id": "vscode",
                 "auto_index": False,
                 "auto_watch": False
             }
@@ -72,7 +72,7 @@ async def test_list_files():
             "type": "client.user_message",
             "message": "Please list the files in the current directory (the workspace root directory)",
             "context": {
-                "frontend_id": "vscode"
+                "module_id": "vscode"
             }
         }))
 

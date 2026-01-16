@@ -1,5 +1,5 @@
 """
-Knowledge Indexer - Indexes frontend-specific operational knowledge and training data
+Knowledge Indexer - Indexes module-specific operational knowledge and training data
 NOT for user workspace code (that's handled on-demand)
 """
 
@@ -29,11 +29,11 @@ INDEXABLE_EXTENSIONS = {
 
 
 class KnowledgeIndexer:
-    """Indexes frontend-specific operational knowledge (docs, training data, API references)"""
+    """Indexes module-specific operational knowledge (docs, training data, API references)"""
 
     def __init__(
         self,
-        frontend_id: str,
+        module_id: str,
         embedding_manager: EmbeddingManager,
         vector_store: VectorStore
     ):
@@ -41,16 +41,16 @@ class KnowledgeIndexer:
         Initialize knowledge indexer
 
         Args:
-            frontend_id: Frontend identifier ("vscode", "android", "3d-gen")
+            module_id: Module identifier ("vscode", "android", "3d-gen")
             embedding_manager: Embedding manager instance
             vector_store: Vector store instance
         """
-        self.frontend_id = frontend_id
+        self.module_id = module_id
         self.embedder = embedding_manager
         self.vector_store = vector_store
         self.chunker = SimpleChunker(window_size=50, overlap=10)
 
-        logger.info("knowledge_indexer_initialized", frontend_id=frontend_id)
+        logger.info("knowledge_indexer_initialized", module_id=module_id)
 
     def _detect_encoding(self, file_path: Path) -> str:
         """Detect file encoding"""
@@ -91,11 +91,11 @@ class KnowledgeIndexer:
             return {"error": "Path not found"}
 
         logger.info("indexing_documentation",
-                   frontend_id=self.frontend_id,
+                   module_id=self.module_id,
                    docs_path=str(docs_path))
 
         # Ensure collection exists
-        collection_name = f"loco_rag_{self.frontend_id}"
+        collection_name = f"loco_rag_{self.module_id}"
         self.vector_store.create_collection(
             collection_name=collection_name,
             vector_size=self.embedder.get_dimensions()
@@ -140,14 +140,14 @@ class KnowledgeIndexer:
                 failed += 1
 
         logger.info("documentation_indexing_complete",
-                   frontend_id=self.frontend_id,
+                   module_id=self.module_id,
                    total_files=len(files),
                    indexed=indexed,
                    skipped=skipped,
                    failed=failed)
 
         return {
-            "frontend_id": self.frontend_id,
+            "module_id": self.module_id,
             "total_files": len(files),
             "indexed": indexed,
             "skipped": skipped,
@@ -171,9 +171,9 @@ class KnowledgeIndexer:
         files = [path for path in files if path.exists() and path.is_file()]
 
         if not files:
-            logger.warning("no_docs_files_found", frontend_id=self.frontend_id)
+            logger.warning("no_docs_files_found", module_id=self.module_id)
             return {
-                "frontend_id": self.frontend_id,
+                "module_id": self.module_id,
                 "total_files": 0,
                 "indexed": 0,
                 "failed": 0,
@@ -181,10 +181,10 @@ class KnowledgeIndexer:
             }
 
         logger.info("indexing_document_files",
-                   frontend_id=self.frontend_id,
+                   module_id=self.module_id,
                    total_files=len(files))
 
-        collection_name = f"loco_rag_{self.frontend_id}"
+        collection_name = f"loco_rag_{self.module_id}"
         self.vector_store.create_collection(
             collection_name=collection_name,
             vector_size=self.embedder.get_dimensions()
@@ -216,13 +216,13 @@ class KnowledgeIndexer:
                 failed += 1
 
         logger.info("document_files_indexing_complete",
-                   frontend_id=self.frontend_id,
+                   module_id=self.module_id,
                    indexed=indexed,
                    failed=failed,
                    skipped=skipped)
 
         return {
-            "frontend_id": self.frontend_id,
+            "module_id": self.module_id,
             "total_files": len(files),
             "indexed": indexed,
             "failed": failed,
@@ -370,7 +370,7 @@ class KnowledgeIndexer:
                 id=point_id,
                 vector=embedding.tolist(),
                 payload={
-                    "frontend_id": self.frontend_id,
+                    "module_id": self.module_id,
                     "source": str(file_path.name),
                     "full_path": str(file_path),
                     "chunk_index": idx,
@@ -413,11 +413,11 @@ class KnowledgeIndexer:
             return {"error": "Path not found"}
 
         logger.info("indexing_training_data",
-                   frontend_id=self.frontend_id,
+                   module_id=self.module_id,
                    jsonl_path=str(jsonl_path))
 
         # Ensure collection exists
-        collection_name = f"loco_rag_{self.frontend_id}"
+        collection_name = f"loco_rag_{self.module_id}"
         self.vector_store.create_collection(
             collection_name=collection_name,
             vector_size=self.embedder.get_dimensions()
@@ -446,13 +446,13 @@ class KnowledgeIndexer:
                 failed += 1
 
         logger.info("training_data_indexing_complete",
-                   frontend_id=self.frontend_id,
+                   module_id=self.module_id,
                    total_files=len(jsonl_files),
                    indexed=indexed,
                    failed=failed)
 
         return {
-            "frontend_id": self.frontend_id,
+            "module_id": self.module_id,
             "total_files": len(jsonl_files),
             "indexed": indexed,
             "failed": failed
@@ -534,7 +534,7 @@ class KnowledgeIndexer:
                         id=point_id,
                         vector=embedding.tolist(),
                         payload={
-                            "frontend_id": self.frontend_id,
+                            "module_id": self.module_id,
                             "source": str(file_path.name),
                             "full_path": str(file_path),
                             "line_number": line_num,
@@ -578,10 +578,10 @@ class KnowledgeIndexer:
         return indexed_count
 
     async def clear_knowledge(self):
-        """Clear all knowledge for this frontend"""
-        collection_name = f"loco_rag_{self.frontend_id}"
+        """Clear all knowledge for this module"""
+        collection_name = f"loco_rag_{self.module_id}"
 
-        logger.info("clearing_frontend_knowledge", frontend_id=self.frontend_id)
+        logger.info("clearing_module_knowledge", module_id=self.module_id)
         self.vector_store.delete_collection(collection_name)
 
         # Recreate empty collection

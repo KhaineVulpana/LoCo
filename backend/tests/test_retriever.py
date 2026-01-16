@@ -24,7 +24,7 @@ async def test_retrieve_knowledge(fake_vector_store, fake_embedding_manager):
     )
 
     retriever = Retriever(
-        frontend_id="3d-gen",
+        module_id="3d-gen",
         embedding_manager=fake_embedding_manager,
         vector_store=fake_vector_store
     )
@@ -49,7 +49,7 @@ async def test_retrieve_ace_bullets(fake_vector_store, fake_embedding_manager):
     )
 
     retriever = Retriever(
-        frontend_id="3d-gen",
+        module_id="3d-gen",
         embedding_manager=fake_embedding_manager,
         vector_store=fake_vector_store
     )
@@ -124,7 +124,7 @@ async def test_retrieve_workspace(fake_vector_store, fake_embedding_manager, asy
     )
 
     retriever = Retriever(
-        frontend_id="vscode",
+        module_id="vscode",
         embedding_manager=fake_embedding_manager,
         vector_store=fake_vector_store,
         db_session_maker=async_session_maker
@@ -203,7 +203,7 @@ async def test_retrieve_workspace_hybrid_uses_vector_results(
     )
 
     retriever = Retriever(
-        frontend_id="vscode",
+        module_id="vscode",
         embedding_manager=fake_embedding_manager,
         vector_store=fake_vector_store,
         db_session_maker=async_session_maker

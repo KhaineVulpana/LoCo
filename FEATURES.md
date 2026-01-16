@@ -78,7 +78,7 @@ Legend: ✅ implemented, 🚧 partially implemented, ⏳ planned.
 - ✅ ACE auto-learning loop (reflector/curator after interaction)
 - ✅ Bullet feedback persistence + dedup/prune safeguards
 - ✅ ACE metrics endpoint
-- ✅ Frontend-scoped collections (`loco_rag_{frontend_id}`, `loco_ace_{frontend_id}`)
+- ✅ Module-scoped collections (`loco_rag_{module_id}`, `loco_ace_{module_id}`)
 - ✅ 3d-gen training data loader
 
 ### 4. Modules
