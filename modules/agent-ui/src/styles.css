@@ -619,7 +619,7 @@ h1, h2, h3 {
 .chat-thread {
   background: var(--bg);
   border-radius: var(--radius-md);
-  padding: 24px;
+  padding: 0;
   border: 1px solid var(--stroke);
   box-shadow: 0 14px 28px var(--shadow);
   flex: 1;
@@ -627,30 +627,32 @@ h1, h2, h3 {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 0;
 }
 
 .chat-bubble {
-  padding: 14px 16px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--stroke);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-width: 72%;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--stroke);
+  display: grid;
+  grid-template-columns: minmax(90px, 130px) 1fr;
+  gap: 16px;
+  max-width: 100%;
+  width: 100%;
   white-space: pre-wrap;
 }
 
 .chat-bubble.user {
-  align-self: flex-end;
-  background: #2a2b32;
-  border-color: rgba(255, 255, 255, 0.08);
+  align-self: stretch;
+  background: rgba(15, 118, 110, 0.08);
 }
 
 .chat-bubble.assistant {
-  align-self: flex-start;
-  background: #40414f;
-  border-color: rgba(255, 255, 255, 0.08);
+  align-self: stretch;
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.chat-bubble:last-child {
+  border-bottom: none;
 }
 
 .chat-role {
@@ -667,10 +669,12 @@ h1, h2, h3 {
 .chat-tool {
   background: #1f2028;
   color: #e2e8f0;
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
+  border-radius: 0;
+  padding: 14px 20px;
   font-size: 12px;
   border: 1px solid rgba(255, 255, 255, 0.06);
+  border-left: 3px solid var(--accent);
+  align-self: stretch;
 }
 
 .chat-tool pre {
@@ -681,8 +685,9 @@ h1, h2, h3 {
 .chat-error {
   border-left: 4px solid var(--warning);
   background: rgba(239, 68, 68, 0.12);
-  padding: 12px;
-  border-radius: var(--radius-sm);
+  padding: 14px 20px;
+  border-radius: 0;
+  align-self: stretch;
 }
 
 .chat-composer {
@@ -994,6 +999,7 @@ h1, h2, h3 {
   }
 
   .chat-bubble {
-    max-width: 100%;
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 }
