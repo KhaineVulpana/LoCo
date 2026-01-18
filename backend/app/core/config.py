@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     SERPAPI_ENGINE: str = "google"
     WEB_FETCH_USER_AGENT: str = "LoCo-Agent/0.1"
 
+    # Uploads
+    UPLOADS_DIR: str = "./data/uploads"
+    MAX_UPLOAD_MB: int = 50
+
     # Repo hosting integrations
     GITHUB_TOKEN: Optional[str] = None
     GITHUB_API_BASE_URL: str = "https://api.github.com"
@@ -65,6 +69,9 @@ class Settings(BaseSettings):
     JIRA_BASE_URL: Optional[str] = None
     JIRA_EMAIL: Optional[str] = None
     JIRA_API_TOKEN: Optional[str] = None
+
+    # Optional: serve a built web UI from the backend (SPA dist folder)
+    UI_DIST_PATH: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

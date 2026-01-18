@@ -4,6 +4,8 @@ LoCo Agent Local - Main Server Entry Point
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager, contextmanager
 import asyncio
 import structlog
@@ -12,6 +14,7 @@ from typing import Optional
 import secrets
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.core.database import init_db, async_session_maker
 from app.core.config import settings
@@ -52,8 +55,10 @@ from app.indexing.auto_knowledge_loader import ensure_shared_knowledge
 from app.indexing.remote_docs_loader import ensure_remote_docs
 from app.indexing.training_data_loader import ensure_3d_gen_training_data
 from app.indexing.vscode_docs_loader import ensure_vscode_docs
-from app.core.model_manager import ModelManager
+from app.core.model_manager import ModelManager, ModelConfig
 from app.api import workspaces, sessions, models as models_api, knowledge, ace
+from app.api import agents as agents_api, folders as folders_api, uploads as uploads_api
+from app.api import search as search_api, exports as exports_api
 from app.core.auth import verify_token
 from app.agent import Agent
 from sqlalchemy import text
@@ -64,6 +69,114 @@ logger = structlog.get_logger()
 # Store active agents per session
 active_agents = {}
 active_agents_lock = asyncio.Lock()
+
+UI_ROUTE_PREFIX = "/app"
+
+
+def _accepts_html(scope: dict) -> bool:
+    headers = scope.get("headers") or []
+    for key, value in headers:
+        if key == b"accept" and b"text/html" in value:
+            return True
+    return False
+
+
+class SPAStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope: dict):
+        response = await super().get_response(path, scope)
+        if response.status_code != 404:
+            return response
+        if not _accepts_html(scope):
+            return response
+        index_path, _ = self.lookup_path("index.html")
+        if index_path:
+            return FileResponse(index_path)
+        return response
+
+
+def _mount_ui(app: FastAPI) -> None:
+    ui_dist_path = settings.UI_DIST_PATH
+    if not ui_dist_path:
+        return
+    dist_path = Path(ui_dist_path)
+    if not dist_path.is_dir():
+        logger.warning("ui_dist_missing", path=ui_dist_path)
+        return
+
+    app.mount(UI_ROUTE_PREFIX, SPAStaticFiles(directory=dist_path, html=True), name="ui")
+
+    async def ui_root():
+        return RedirectResponse(f"{UI_ROUTE_PREFIX}/")
+
+    app.add_api_route("/", ui_root, include_in_schema=False)
+    logger.info("ui_mounted", path=str(dist_path), route=UI_ROUTE_PREFIX)
+
+
+async def _store_session_message(
+    session_id: str,
+    role: str,
+    content: str,
+    context: Optional[dict] = None,
+    metadata: Optional[dict] = None
+) -> None:
+    if not content:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    context_json = json.dumps(context, ensure_ascii=True) if context else None
+    metadata_json = json.dumps(metadata, ensure_ascii=True) if metadata else None
+
+    async with async_session_maker() as db:
+        result = await db.execute(text("""
+            INSERT INTO session_messages (
+                session_id, role, content, context_json, metadata_json, created_at
+            )
+            VALUES (
+                :session_id, :role, :content, :context_json, :metadata_json, :created_at
+            )
+        """), {
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "context_json": context_json,
+            "metadata_json": metadata_json,
+            "created_at": now
+        })
+
+        message_id = getattr(result, "lastrowid", None)
+        if message_id is None:
+            id_result = await db.execute(text("SELECT last_insert_rowid()"))
+            message_id = id_result.scalar()
+
+        try:
+            await db.execute(text("""
+                INSERT INTO session_messages_fts (rowid, session_id, role, content, created_at)
+                VALUES (:rowid, :session_id, :role, :content, :created_at)
+            """), {
+                "rowid": message_id,
+                "session_id": session_id,
+                "role": role,
+                "content": content,
+                "created_at": now
+            })
+        except Exception as exc:
+            logger.warning("fts_insert_failed", error=str(exc), session_id=session_id)
+
+        await db.execute(text("""
+            UPDATE sessions
+            SET updated_at = :updated_at,
+                total_messages = COALESCE(total_messages, 0) + 1
+            WHERE id = :session_id
+        """), {"updated_at": now, "session_id": session_id})
+
+        if role == "user":
+            title = content.strip().splitlines()[0][:80]
+            await db.execute(text("""
+                UPDATE sessions
+                SET title = COALESCE(title, :title)
+                WHERE id = :session_id
+            """), {"title": title, "session_id": session_id})
+
+        await db.commit()
 
 
 @contextmanager
@@ -282,6 +395,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_mount_ui(app)
+
 
 # Dependency injection helpers for RAG components
 def get_embedding_manager() -> EmbeddingManager:
@@ -311,6 +426,11 @@ app.include_router(sessions.router, prefix="/v1/sessions", tags=["sessions"])
 app.include_router(models_api.router, prefix="/v1/models", tags=["models"])
 app.include_router(knowledge.router, prefix="/v1/knowledge", tags=["knowledge"])
 app.include_router(ace.router, prefix="/v1/ace", tags=["ace"])
+app.include_router(agents_api.router, prefix="/v1/agents", tags=["agents"])
+app.include_router(folders_api.router, prefix="/v1/folders", tags=["folders"])
+app.include_router(uploads_api.router, prefix="/v1/uploads", tags=["uploads"])
+app.include_router(search_api.router, prefix="/v1/search", tags=["search"])
+app.include_router(exports_api.router, prefix="/v1/exports", tags=["exports"])
 
 
 # WebSocket handler for streaming agent interactions
@@ -366,72 +486,151 @@ async def websocket_endpoint(
         })
 
     async def get_or_create_agent(context: dict) -> Optional[Agent]:
-        async with active_agents_lock:
-            if session_id not in active_agents:
-                async with async_session_maker() as db:
-                    session_query = text("""
-                        SELECT workspace_id FROM sessions WHERE id = :session_id
-                    """)
-                    session_result = await db.execute(session_query, {"session_id": session_id})
-                    session_row = session_result.fetchone()
+        async with async_session_maker() as db:
+            session_query = text("""
+                SELECT workspace_id, agent_id, model_provider, model_name, model_url,
+                       context_window, temperature
+                FROM sessions
+                WHERE id = :session_id AND deleted_at IS NULL
+            """)
+            session_result = await db.execute(session_query, {"session_id": session_id})
+            session_row = session_result.fetchone()
 
-                    if not session_row:
-                        await send_error("session_not_found", "Session not found")
-                        return None
+            if not session_row:
+                await send_error("session_not_found", "Session not found")
+                return None
 
-                    workspace_id = session_row[0]
+            workspace_id = session_row[0]
+            agent_id = session_row[1]
+            model_provider = session_row[2] or settings.MODEL_PROVIDER
+            model_name = session_row[3] or settings.MODEL_NAME
+            model_url = session_row[4] or settings.MODEL_URL
+            context_window = session_row[5] or settings.MAX_CONTEXT_TOKENS
+            temperature = session_row[6] if session_row[6] is not None else 0.7
 
-                    workspace_query = text("""
-                        SELECT path, name FROM workspaces WHERE id = :workspace_id
-                    """)
-                    workspace_result = await db.execute(workspace_query, {"workspace_id": workspace_id})
-                    workspace_row = workspace_result.fetchone()
+            if model_url == "":
+                model_url = settings.MODEL_URL
+            if model_name == "":
+                model_name = settings.MODEL_NAME
 
-                    if not workspace_row:
-                        await send_error("workspace_not_found", "Workspace not found")
-                        return None
+            workspace_query = text("""
+                SELECT path, name FROM workspaces WHERE id = :workspace_id
+            """)
+            workspace_result = await db.execute(workspace_query, {"workspace_id": workspace_id})
+            workspace_row = workspace_result.fetchone()
 
-                    workspace_path = await _resolve_workspace_path_for_session(
-                        db=db,
-                        workspace_id=workspace_id,
-                        stored_path=workspace_row[0],
-                        workspace_name=workspace_row[1]
-                    )
+            if not workspace_row:
+                await send_error("workspace_not_found", "Workspace not found")
+                return None
 
-                # Support legacy "frontend_id" context key.
-                module_id = context.get("module_id") or context.get("frontend_id", "vscode")
+            workspace_path = await _resolve_workspace_path_for_session(
+                db=db,
+                workspace_id=workspace_id,
+                stored_path=workspace_row[0],
+                workspace_name=workspace_row[1]
+            )
 
-                agent = Agent(
-                    workspace_path=workspace_path,
-                    module_id=module_id,
-                    workspace_id=workspace_id,
-                    db_session_maker=async_session_maker,
-                    model_manager=runtime.model_manager,
-                    embedding_manager=runtime.embedding_manager,
-                    vector_store=runtime.vector_store
+            agent_config = None
+            if agent_id:
+                agent_row = await db.execute(text("""
+                    SELECT a.active_version_id, v.config_json
+                    FROM agents a
+                    LEFT JOIN agent_versions v ON v.id = a.active_version_id
+                    WHERE a.id = :agent_id AND a.deleted_at IS NULL
+                """), {"agent_id": agent_id})
+                agent_data = agent_row.fetchone()
+                if agent_data:
+                    config_json = agent_data[1]
+                    if not config_json:
+                        fallback_row = await db.execute(text("""
+                            SELECT config_json
+                            FROM agent_versions
+                            WHERE agent_id = :agent_id
+                            ORDER BY version DESC
+                            LIMIT 1
+                        """), {"agent_id": agent_id})
+                        fallback = fallback_row.fetchone()
+                        if fallback:
+                            config_json = fallback[0]
+                    if config_json:
+                        try:
+                            agent_config = json.loads(config_json)
+                        except json.JSONDecodeError:
+                            agent_config = None
+
+        if runtime.model_manager:
+            await runtime.model_manager.ensure_model_loaded(
+                ModelConfig(
+                    provider=model_provider,
+                    model_name=model_name,
+                    url=model_url,
+                    context_window=context_window,
+                    temperature=temperature
                 )
-                active_agents[session_id] = agent
-                logger.info("agent_created",
-                           session_id=session_id,
-                           workspace_path=workspace_path,
-                           module_id=module_id,
-                           rag_enabled=agent.retriever is not None)
-            else:
-                agent = active_agents[session_id]
+            )
+
+        # Support legacy "frontend_id" context key.
+        module_id = context.get("module_id") or context.get("frontend_id", "vscode")
+
+        async with active_agents_lock:
+            if session_id in active_agents:
+                return active_agents[session_id]
+
+            agent = Agent(
+                workspace_path=workspace_path,
+                module_id=module_id,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                db_session_maker=async_session_maker,
+                model_manager=runtime.model_manager,
+                embedding_manager=runtime.embedding_manager,
+                vector_store=runtime.vector_store,
+                agent_config=agent_config
+            )
+            active_agents[session_id] = agent
+            logger.info("agent_created",
+                       session_id=session_id,
+                       workspace_path=workspace_path,
+                       module_id=module_id,
+                       rag_enabled=agent.retriever is not None)
 
         return agent
 
     async def run_agent_message(user_msg: str, context: dict) -> None:
+        assistant_parts = []
+        final_message = None
+        final_metadata = None
         try:
+            await _store_session_message(
+                session_id=session_id,
+                role="user",
+                content=user_msg,
+                context=context
+            )
             agent = await get_or_create_agent(context)
             if not agent:
                 return
             async with processing_lock:
                 async for event in agent.process_message(user_msg, context):
+                    if event.get("type") == "assistant.message_delta":
+                        assistant_parts.append(event.get("delta", ""))
+                    elif event.get("type") == "assistant.message_final":
+                        final_message = event.get("message")
+                        final_metadata = event.get("metadata")
                     await enqueue(event)
         except Exception as exc:
             logger.error("agent_processing_error", error=str(exc), session_id=session_id)
             await send_error("agent_error", f"Agent processing failed: {str(exc)}")
+        finally:
+            if final_message is None and assistant_parts:
+                final_message = "".join(assistant_parts).strip()
+            if final_message:
+                await _store_session_message(
+                    session_id=session_id,
+                    role="assistant",
+                    content=final_message,
+                    metadata=final_metadata
+                )
 
     send_task = asyncio.create_task(send_loop())
 

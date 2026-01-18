@@ -16,12 +16,13 @@ const vertexCount = document.getElementById('vertex-count');
 const triangleCount = document.getElementById('triangle-count');
 const meshStatus = document.getElementById('mesh-status');
 
-const serverInput = document.getElementById('server-url');
-const workspaceInput = document.getElementById('workspace-path');
-const tokenInput = document.getElementById('auth-token');
+const serverInput = document.getElementById('server-url') || document.getElementById('settings-server-url');
+const workspaceInput = document.getElementById('workspace-path') || document.getElementById('settings-workspace-path');
+const tokenInput = document.getElementById('auth-token') || document.getElementById('settings-auth-token');
 const connectBtn = document.getElementById('connect-btn');
 const composer = document.getElementById('composer');
 const messageInput = document.getElementById('message-input');
+const sendBtn = document.getElementById('send-button');
 const messagesEl = document.getElementById('messages');
 const sessionListEl = document.getElementById('session-list');
 const newSessionBtn = document.getElementById('new-session-btn');
@@ -53,6 +54,7 @@ const settingsWorkspaceInput = document.getElementById('settings-workspace-path'
 const settingsTokenInput = document.getElementById('settings-auth-token');
 const settingsAutoConnect = document.getElementById('settings-auto-connect');
 const settingsAutoReconnect = document.getElementById('settings-auto-reconnect');
+const settingsAutoApprove = document.getElementById('settings-auto-approve');
 const settingsGridToggle = document.getElementById('settings-grid');
 const settingsWireframeToggle = document.getElementById('settings-wireframe');
 const settingsLightingSelect = document.getElementById('settings-lighting');
@@ -84,6 +86,7 @@ const DEFAULT_SETTINGS = {
   token: '',
   autoConnect: false,
   autoReconnect: true,
+  autoApprove: false,
   gridVisible: true,
   wireframe: false,
   lightingPreset: 'studio'
@@ -166,7 +169,13 @@ const state = {
   layoutRatio: null,
   intentionalClose: false,
   autoConnect: DEFAULT_SETTINGS.autoConnect,
-  autoReconnect: DEFAULT_SETTINGS.autoReconnect
+  autoReconnect: DEFAULT_SETTINGS.autoReconnect,
+  autoApprove: DEFAULT_SETTINGS.autoApprove,
+  isStreaming: false,
+  thinkingBuffer: '',
+  thinkingEl: null,
+  thinkingContentEl: null,
+  thinkingCollapsed: false
 };
 
 function showToast(message) {
@@ -181,6 +190,37 @@ function showToast(message) {
   state.toastTimer = setTimeout(() => {
     toastEl.classList.remove('visible');
   }, 2400);
+}
+
+function updateSendButton() {
+  if (!sendBtn) {
+    return;
+  }
+  if (state.isStreaming) {
+    sendBtn.textContent = 'Stop';
+    sendBtn.classList.add('is-stop');
+  } else {
+    sendBtn.textContent = 'Send';
+    sendBtn.classList.remove('is-stop');
+  }
+}
+
+function setStreamingState(isStreaming) {
+  state.isStreaming = isStreaming;
+  updateSendButton();
+}
+
+function cancelGeneration() {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    showToast('Not connected.');
+    setStreamingState(false);
+    return;
+  }
+  state.ws.send(JSON.stringify({
+    type: 'client.cancel'
+  }));
+  addLog('info', 'Generation cancelled');
+  setStreamingState(false);
 }
 
 function formatLogDetails(details) {
@@ -459,6 +499,53 @@ function openLogsPage() {
   }
 }
 
+async function initNativeMenuListener() {
+  const tauri = window.__TAURI__;
+  if (!tauri) {
+    console.warn('Tauri API not available');
+    return;
+  }
+
+  const eventModule = tauri.event;
+  if (!eventModule || typeof eventModule.listen !== 'function') {
+    console.warn('Tauri event module not available');
+    return;
+  }
+
+  try {
+    await eventModule.listen('menu-action', (event) => {
+      const action = typeof event.payload === 'string' ? event.payload : event.payload?.action;
+      if (!action) {
+        return;
+      }
+      switch (action) {
+        case 'menu_settings':
+          openSettings();
+          break;
+        case 'menu_logs':
+          openLogsPage();
+          break;
+        case 'menu_import':
+          if (importFileInput) {
+            importFileInput.click();
+          }
+          break;
+        case 'menu_export_glb':
+          exportMesh('glb');
+          break;
+        case 'menu_export_stl':
+          exportMesh('stl');
+          break;
+        default:
+          break;
+      }
+    });
+    console.log('Menu listener initialized');
+  } catch (error) {
+    console.warn('Failed to set up menu listener:', error);
+  }
+}
+
 function closeSettings() {
   if (!settingsOverlay) {
     return;
@@ -486,6 +573,9 @@ function syncSettingsForm() {
   }
   if (settingsAutoReconnect) {
     settingsAutoReconnect.checked = state.autoReconnect;
+  }
+  if (settingsAutoApprove) {
+    settingsAutoApprove.checked = state.autoApprove;
   }
   if (settingsGridToggle) {
     settingsGridToggle.checked = state.gridVisible;
@@ -516,6 +606,9 @@ function resetSettingsForm() {
   }
   if (settingsAutoReconnect) {
     settingsAutoReconnect.checked = DEFAULT_SETTINGS.autoReconnect;
+  }
+  if (settingsAutoApprove) {
+    settingsAutoApprove.checked = DEFAULT_SETTINGS.autoApprove;
   }
   if (settingsGridToggle) {
     settingsGridToggle.checked = DEFAULT_SETTINGS.gridVisible;
@@ -548,6 +641,9 @@ function applySettingsFromForm() {
     if (!state.autoReconnect) {
       stopReconnect();
     }
+  }
+  if (settingsAutoApprove) {
+    state.autoApprove = settingsAutoApprove.checked;
   }
 
   if (settingsGridToggle) {
@@ -611,7 +707,8 @@ function saveConfig() {
     workspacePath: workspaceInput.value.trim(),
     token: tokenInput.value.trim(),
     autoConnect: state.autoConnect,
-    autoReconnect: state.autoReconnect
+    autoReconnect: state.autoReconnect,
+    autoApprove: state.autoApprove
   }));
 }
 
@@ -623,6 +720,7 @@ function loadConfig() {
     tokenInput.value = DEFAULT_SETTINGS.token;
     state.autoConnect = DEFAULT_SETTINGS.autoConnect;
     state.autoReconnect = DEFAULT_SETTINGS.autoReconnect;
+    state.autoApprove = DEFAULT_SETTINGS.autoApprove;
     return;
   }
 
@@ -637,12 +735,16 @@ function loadConfig() {
     state.autoReconnect = typeof config.autoReconnect === 'boolean'
       ? config.autoReconnect
       : DEFAULT_SETTINGS.autoReconnect;
+    state.autoApprove = typeof config.autoApprove === 'boolean'
+      ? config.autoApprove
+      : DEFAULT_SETTINGS.autoApprove;
   } catch {
     serverInput.value = DEFAULT_SETTINGS.serverUrl;
     workspaceInput.value = DEFAULT_SETTINGS.workspacePath;
     tokenInput.value = DEFAULT_SETTINGS.token;
     state.autoConnect = DEFAULT_SETTINGS.autoConnect;
     state.autoReconnect = DEFAULT_SETTINGS.autoReconnect;
+    state.autoApprove = DEFAULT_SETTINGS.autoApprove;
   }
 }
 
@@ -729,8 +831,88 @@ function renderMessage(role, content) {
   return messageEl;
 }
 
+function setThinkingCollapsed(collapsed) {
+  state.thinkingCollapsed = collapsed;
+  if (!state.thinkingEl) {
+    return;
+  }
+  state.thinkingEl.classList.toggle('is-collapsed', collapsed);
+  const toggle = state.thinkingEl.querySelector('.thinking-toggle');
+  if (toggle) {
+    toggle.textContent = collapsed ? 'Expand' : 'Collapse';
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+  }
+}
+
+function resetThinkingCard() {
+  state.thinkingBuffer = '';
+  state.thinkingCollapsed = false;
+  if (state.thinkingEl) {
+    state.thinkingEl.remove();
+  }
+  state.thinkingEl = null;
+  state.thinkingContentEl = null;
+}
+
+function ensureThinkingCard() {
+  if (state.thinkingEl || !messagesEl) {
+    return;
+  }
+  const card = document.createElement('div');
+  card.className = 'thinking-card';
+
+  const header = document.createElement('div');
+  header.className = 'thinking-header';
+
+  const title = document.createElement('span');
+  title.className = 'thinking-title';
+  title.textContent = 'Thinking';
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'ghost-btn thinking-toggle';
+  toggle.textContent = 'Collapse';
+  toggle.setAttribute('aria-expanded', 'true');
+  toggle.addEventListener('click', () => {
+    setThinkingCollapsed(!state.thinkingCollapsed);
+  });
+
+  header.appendChild(title);
+  header.appendChild(toggle);
+
+  const body = document.createElement('pre');
+  body.className = 'thinking-body';
+
+  card.appendChild(header);
+  card.appendChild(body);
+  messagesEl.appendChild(card);
+
+  state.thinkingEl = card;
+  state.thinkingContentEl = body;
+}
+
+function updateThinkingCard(message) {
+  if (!message || !messagesEl) {
+    return;
+  }
+  ensureThinkingCard();
+  const next = String(message);
+  if (!state.thinkingBuffer) {
+    state.thinkingBuffer = next;
+  } else if (next.startsWith(state.thinkingBuffer)) {
+    state.thinkingBuffer = next;
+  } else {
+    state.thinkingBuffer = `${state.thinkingBuffer}\n${next}`;
+  }
+  if (state.thinkingContentEl) {
+    state.thinkingContentEl.textContent = state.thinkingBuffer;
+  }
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
 function renderMessages(sessionId) {
   messagesEl.innerHTML = '';
+  resetThinkingCard();
   const messages = getSessionMessages(sessionId);
   for (const message of messages) {
     renderMessage(message.role, message.content);
@@ -746,6 +928,40 @@ function addMessage(role, content) {
   messages.push(entry);
   schedulePersist();
   return renderMessage(role, content);
+}
+
+function renderToolCard(kind, event) {
+  if (!messagesEl) {
+    return;
+  }
+  const toolName = event?.tool || event?.command || 'tool';
+  const detailsPayload = kind === 'tool_result'
+    ? (event?.result ?? {})
+    : (event?.arguments ?? event ?? {});
+
+  // Don't render empty tool cards
+  const detailsText = formatLogDetails(detailsPayload);
+  if (!detailsText || detailsText === '{}' || detailsText === 'null') {
+    return;
+  }
+
+  const card = document.createElement('details');
+  card.className = `tool-card ${kind}`;
+  card.open = false;
+
+  const summary = document.createElement('summary');
+  summary.className = 'tool-summary';
+  const label = kind === 'tool_result' ? 'Result' : 'Tool';
+  summary.textContent = `${label}: ${toolName}`;
+
+  const body = document.createElement('pre');
+  body.className = 'tool-details';
+  body.textContent = detailsText;
+
+  card.appendChild(summary);
+  card.appendChild(body);
+  messagesEl.appendChild(card);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 function appendAssistantDelta(delta) {
@@ -1105,6 +1321,7 @@ function openWebSocket(serverUrl) {
     ws.addEventListener('close', (event) => {
       stopPing();
       state.ws = null;
+      setStreamingState(false);
       addLog('warn', 'WebSocket closed', {
         code: event.code,
         reason: event.reason || '',
@@ -1121,6 +1338,7 @@ function openWebSocket(serverUrl) {
 
     ws.addEventListener('error', (error) => {
       addLog('error', 'WebSocket error');
+      setStreamingState(false);
       if (!settled) {
         settled = true;
         reject(error);
@@ -1142,6 +1360,7 @@ function closeWebSocket(intentional = false) {
   stopPing();
   state.ws.close();
   state.ws = null;
+  setStreamingState(false);
 }
 
 async function switchSession(sessionId) {
@@ -1175,6 +1394,7 @@ async function switchSession(sessionId) {
     addMessage('assistant', 'Failed to switch session.');
     setStatus('offline');
     setConnectButton('offline');
+    setStreamingState(false);
   }
 }
 
@@ -1229,6 +1449,7 @@ async function connect() {
     setStatus('offline');
     setConnectButton('offline');
     addLog('error', 'Connection failed', { message: error.message });
+    setStreamingState(false);
   }
 }
 
@@ -1250,7 +1471,14 @@ async function createNewSession() {
     showError(`Failed to create session: ${error.message}`);
     setStatus('offline');
     setConnectButton('offline');
+    setStreamingState(false);
   }
+}
+
+function resetAssistantState() {
+  state.currentAssistantEl = null;
+  state.currentAssistantIndex = null;
+  state.assistantBuffer = '';
 }
 
 function sendUserMessage(message) {
@@ -1261,6 +1489,8 @@ function sendUserMessage(message) {
   }
 
   clearError();
+  resetThinkingCard();
+  resetAssistantState();
   addMessage('user', message);
   updateSessionTitleFromMessage(message);
   recordPromptHistory(message);
@@ -1274,6 +1504,7 @@ function sendUserMessage(message) {
     }
   }));
   addLog('info', 'User message sent', { length: message.length });
+  setStreamingState(true);
 }
 
 function sendApprovalResponse(requestId, approved) {
@@ -1307,9 +1538,18 @@ function renderApprovalRequest(payload) {
   message.className = 'approval-message';
   message.textContent = payload.message || `Approve ${payload.tool || 'tool'}?`;
 
-  const details = document.createElement('pre');
+  const details = document.createElement('details');
   details.className = 'approval-details';
-  details.textContent = JSON.stringify(payload.arguments || {}, null, 2);
+
+  const summary = document.createElement('summary');
+  summary.textContent = 'View details';
+
+  const detailsBody = document.createElement('pre');
+  detailsBody.className = 'approval-details-body';
+  detailsBody.textContent = formatLogDetails(payload.arguments || {});
+
+  details.appendChild(summary);
+  details.appendChild(detailsBody);
 
   const actions = document.createElement('div');
   actions.className = 'approval-actions';
@@ -1350,20 +1590,29 @@ function handleServerEvent(event) {
       break;
     case 'assistant.message_delta':
       appendAssistantDelta(event.delta || '');
+      setStreamingState(true);
       break;
     case 'assistant.message_final':
       finalizeAssistantMessage(event.message || '');
       addLog('info', 'Assistant message final', { length: (event.message || '').length });
+      setStreamingState(false);
       break;
     case 'assistant.thinking':
-      addMessage('assistant', event.message || 'Thinking...');
+      updateThinkingCard(event.message || 'Thinking...');
       break;
     case 'assistant.tool_use':
-      addMessage('assistant', `Tool: ${event.tool}`);
+      renderToolCard('tool_use', event);
       addLog('info', 'Tool use', { tool: event.tool, arguments: event.arguments });
+      if (event.tool === 'write_file' && event.arguments?.content) {
+        const meshPayload = extractMeshPayload(event.arguments.content);
+        if (meshPayload) {
+          setMeshStatus('loading', 'Rendering mesh from file...');
+          renderMesh(meshPayload);
+        }
+      }
       break;
     case 'assistant.tool_result':
-      addMessage('assistant', `Tool result: ${JSON.stringify(event.result)}`);
+      renderToolCard('tool_result', event);
       addLog('info', 'Tool result', { tool: event.tool, result: event.result });
       break;
     case 'tool.request_approval':
@@ -1373,11 +1622,22 @@ function handleServerEvent(event) {
         tool: event.tool,
         arguments: event.arguments
       });
-      renderApprovalRequest(event);
+      if (state.autoApprove) {
+        addLog('info', 'Auto-approving request', { requestId: event.request_id });
+        sendApprovalResponse(event.request_id, true);
+        renderToolCard('tool_use', {
+          tool: event.tool,
+          arguments: event.arguments,
+          autoApproved: true
+        });
+      } else {
+        renderApprovalRequest(event);
+      }
       break;
     case 'server.error':
       addMessage('assistant', `Error: ${event.error?.message || 'Unknown error'}`);
       showError(event.error?.message || 'Server error.');
+      setStreamingState(false);
       break;
     case 'server.pong':
       break;
@@ -1957,9 +2217,11 @@ function toggleGrid() {
   applyGridVisibility(!state.gridVisible);
 }
 
-connectBtn.addEventListener('click', () => {
-  connect();
-});
+if (connectBtn) {
+  connectBtn.addEventListener('click', () => {
+    connect();
+  });
+}
 
 if (newSessionBtn) {
   newSessionBtn.addEventListener('click', () => {
@@ -2011,6 +2273,10 @@ if (settingsResetBtn) {
 
 composer.addEventListener('submit', (event) => {
   event.preventDefault();
+  if (state.isStreaming) {
+    cancelGeneration();
+    return;
+  }
   const message = messageInput.value.trim();
   if (!message) {
     return;
@@ -2022,6 +2288,10 @@ composer.addEventListener('submit', (event) => {
 messageInput.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
     event.preventDefault();
+    if (state.isStreaming) {
+      cancelGeneration();
+      return;
+    }
     const message = messageInput.value.trim();
     if (!message) {
       return;
@@ -2153,6 +2423,7 @@ loadLayout();
 loadConfig();
 loadState();
 setConnectButton('idle');
+updateSendButton();
 renderPromptTemplates();
 renderPromptHistory();
 renderSessions();
@@ -2170,6 +2441,7 @@ initViewer();
 applyGridVisibility(state.gridVisible, { persist: false });
 applyWireframeState(state.wireframe, { persist: false });
 initResizablePanels();
+initNativeMenuListener();
 if (settingsLightingSelect) {
   settingsLightingSelect.value = state.lightingPreset;
 }

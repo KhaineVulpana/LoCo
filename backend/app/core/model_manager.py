@@ -168,8 +168,18 @@ class ModelManager:
 
         # Check if already on this model
         if self._is_same_model(new_config):
-            logger.info("model_already_loaded",
-                       model=str(new_config))
+            if self.current_config and (
+                self.current_config.context_window != new_config.context_window
+                or self.current_config.temperature != new_config.temperature
+            ):
+                self.current_config = new_config
+                logger.info("model_config_updated",
+                           model=str(new_config),
+                           context_window=new_config.context_window,
+                           temperature=new_config.temperature)
+            else:
+                logger.info("model_already_loaded",
+                           model=str(new_config))
             return self.current_model
 
         # Acquire lock to prevent concurrent switches
@@ -363,6 +373,15 @@ class ModelManager:
             LLMClient instance
         """
         if self._is_same_model(config):
+            if self.current_config and (
+                self.current_config.context_window != config.context_window
+                or self.current_config.temperature != config.temperature
+            ):
+                self.current_config = config
+                logger.info("model_config_updated",
+                           model=str(config),
+                           context_window=config.context_window,
+                           temperature=config.temperature)
             return self.current_model
 
         return await self.switch_model(

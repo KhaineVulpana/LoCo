@@ -22,145 +22,107 @@
   </head>
   <body>
     <div class="app">
-      <aside class="session-panel">
-        <div class="session-header">
-          <div>
-            <p class="eyebrow">LoCo</p>
-            <h1>3D-Gen</h1>
+        <aside class="session-panel">
+          <div class="session-header">
+            <div>
+              <p class="eyebrow">LoCo</p>
+              <h1>3D-Gen</h1>
+            </div>
+            <div class="session-actions">
+              <button id="new-session-btn" class="ghost-btn">New chat</button>
+            </div>
           </div>
-          <div class="session-actions">
-            <button id="settings-open" class="ghost-btn">Settings</button>
-            <button id="logs-open" class="ghost-btn">Logs</button>
-            <button id="new-session-btn" class="ghost-btn">New chat</button>
+          <div class="session-meta">
+            <span class="module-pill">module: 3d-gen</span>
+            <span id="status-pill" class="status-pill offline">offline</span>
           </div>
-        </div>
-        <div class="session-meta">
-          <span class="module-pill">module: 3d-gen</span>
-          <span id="status-pill" class="status-pill offline">offline</span>
-        </div>
-        <div class="session-list" id="session-list"></div>
-      </aside>
+          <div class="session-list" id="session-list"></div>
+        </aside>
 
-      <main class="chat-panel">
-        <header class="panel-header">
-          <div>
-            <p class="eyebrow">Active Session</p>
-            <h2 id="active-session-title">New chat</h2>
+        <main class="chat-panel">
+          <header class="panel-header">
+            <div>
+              <p class="eyebrow">Active Session</p>
+              <h2 id="active-session-title">New chat</h2>
+            </div>
+            <span class="session-hint">Chat + 3D preview</span>
+          </header>
+          <div id="error-banner" class="error-banner">
+            <span id="error-banner-text">Connection issues detected.</span>
+            <button id="error-banner-dismiss" class="ghost-btn">Dismiss</button>
           </div>
-          <span class="session-hint">Chat + 3D preview</span>
-        </header>
-        <div id="error-banner" class="error-banner">
-          <span id="error-banner-text">Connection issues detected.</span>
-          <button id="error-banner-dismiss" class="ghost-btn">Dismiss</button>
-        </div>
 
-        <section class="connection-card">
-          <div class="connection-header">
-            <h3>Connection</h3>
-            <span id="status-pill-dup" class="status-pill offline">offline</span>
+          <section class="messages" id="messages"></section>
+
+          <form id="composer" class="composer">
+            <textarea
+              id="message-input"
+              rows="3"
+              placeholder="Describe a 3D asset..."
+            ></textarea>
+            <div class="composer-actions">
+              <div class="composer-actions-left">
+                <span class="composer-hint">Tip: Ctrl+Enter sends</span>
+                <button id="copy-last-prompt" type="button" class="ghost-btn">
+                  Copy last prompt
+                </button>
+              </div>
+              <button id="send-button" type="submit" class="primary-btn">Send</button>
+            </div>
+          </form>
+        </main>
+
+        <div id="panel-divider" class="panel-divider" role="separator" aria-orientation="vertical" tabindex="0"></div>
+
+        <section class="viewer-panel">
+          <header class="viewer-header">
+            <div>
+              <h2>Mesh Preview</h2>
+              <p id="viewer-status">Waiting for mesh JSON...</p>
+            </div>
+            <div class="viewer-actions">
+              <button id="reset-view" class="ghost-btn">Reset view</button>
+              <button id="toggle-wireframe" class="ghost-btn">Wireframe</button>
+              <button id="toggle-grid" class="ghost-btn">Grid</button>
+              <label class="select-field">
+                Lighting
+                <select id="lighting-preset">
+                  <option value="studio">Studio</option>
+                  <option value="noir">Noir</option>
+                  <option value="soft">Soft</option>
+                </select>
+              </label>
+              <button id="copy-mesh-stats" class="ghost-btn">Copy stats</button>
+            </div>
+          </header>
+          <div class="viewer-surface">
+            <canvas id="viewer"></canvas>
+            <div class="viewer-overlay" id="viewer-overlay">
+              <div class="viewer-illustration" aria-hidden="true">
+                <span class="ring"></span>
+                <span class="spark"></span>
+                <span class="cube"></span>
+              </div>
+              <p id="viewer-overlay-text">Send a prompt to generate a mesh.</p>
+              <p id="viewer-overlay-hint" class="viewer-overlay-hint">Drop a mesh file to import.</p>
+            </div>
+            <div id="drop-overlay" class="drop-overlay">Drop to import</div>
           </div>
-          <div class="connection-grid">
-            <label>
-              Server URL
-              <input id="server-url" type="text" placeholder="http://localhost:3199" />
-            </label>
-            <label>
-              Workspace Path
-              <input id="workspace-path" type="text" placeholder="C:\Projects\3d-gen" />
-            </label>
-            <label>
-              Token (optional)
-              <input id="auth-token" type="password" placeholder="paste token if enabled" />
-            </label>
-            <button id="connect-btn" class="primary-btn">Connect</button>
+          <div class="viewer-meta" id="viewer-meta">
+            <div>
+              <span class="meta-label">Vertices</span>
+              <span id="vertex-count">0</span>
+            </div>
+            <div>
+              <span class="meta-label">Triangles</span>
+              <span id="triangle-count">0</span>
+            </div>
+            <div>
+              <span class="meta-label">Status</span>
+              <span id="mesh-status">idle</span>
+            </div>
           </div>
         </section>
-
-        <section class="prompt-shelf">
-          <div class="prompt-group">
-            <p class="prompt-label">Templates</p>
-            <div id="prompt-templates" class="chip-row"></div>
-          </div>
-          <div class="prompt-group">
-            <p class="prompt-label">Recent</p>
-            <div id="prompt-history" class="chip-row"></div>
-          </div>
-        </section>
-
-        <section class="messages" id="messages"></section>
-
-        <form id="composer" class="composer">
-          <textarea
-            id="message-input"
-            rows="3"
-            placeholder="Describe a 3D asset..."
-          ></textarea>
-          <div class="composer-actions">
-            <div class="composer-actions-left">
-              <span class="composer-hint">Tip: Ctrl+Enter sends</span>
-              <button id="copy-last-prompt" type="button" class="ghost-btn">
-                Copy last prompt
-              </button>
-            </div>
-            <button type="submit" class="primary-btn">Send</button>
-          </div>
-        </form>
-      </main>
-
-      <div id="panel-divider" class="panel-divider" role="separator" aria-orientation="vertical" tabindex="0"></div>
-
-      <section class="viewer-panel">
-        <header class="viewer-header">
-          <div>
-            <h2>Mesh Preview</h2>
-            <p id="viewer-status">Waiting for mesh JSON...</p>
-          </div>
-          <div class="viewer-actions">
-            <button id="reset-view" class="ghost-btn">Reset view</button>
-            <button id="toggle-wireframe" class="ghost-btn">Wireframe</button>
-            <button id="toggle-grid" class="ghost-btn">Grid</button>
-            <label class="select-field">
-              Lighting
-              <select id="lighting-preset">
-                <option value="studio">Studio</option>
-                <option value="noir">Noir</option>
-                <option value="soft">Soft</option>
-              </select>
-            </label>
-            <button id="import-mesh" class="ghost-btn">Import</button>
-            <button id="export-glb" class="ghost-btn">Export GLB</button>
-            <button id="export-stl" class="ghost-btn">Export STL</button>
-            <button id="copy-mesh-stats" class="ghost-btn">Copy stats</button>
-          </div>
-        </header>
-        <div class="viewer-surface">
-          <canvas id="viewer"></canvas>
-          <div class="viewer-overlay" id="viewer-overlay">
-            <div class="viewer-illustration" aria-hidden="true">
-              <span class="ring"></span>
-              <span class="spark"></span>
-              <span class="cube"></span>
-            </div>
-            <p id="viewer-overlay-text">Send a prompt to generate a mesh.</p>
-            <p id="viewer-overlay-hint" class="viewer-overlay-hint">Drop a mesh file to import.</p>
-          </div>
-          <div id="drop-overlay" class="drop-overlay">Drop to import</div>
-        </div>
-        <div class="viewer-meta" id="viewer-meta">
-          <div>
-            <span class="meta-label">Vertices</span>
-            <span id="vertex-count">0</span>
-          </div>
-          <div>
-            <span class="meta-label">Triangles</span>
-            <span id="triangle-count">0</span>
-          </div>
-          <div>
-            <span class="meta-label">Status</span>
-            <span id="mesh-status">idle</span>
-          </div>
-        </div>
-      </section>
     </div>
 
     <div id="settings-overlay" class="settings-overlay" aria-hidden="true">
@@ -199,6 +161,11 @@
                 Auto-reconnect
                 <input id="settings-auto-reconnect" type="checkbox" />
               </label>
+              <label class="toggle-field">
+                Auto-approve tool calls
+                <input id="settings-auto-approve" type="checkbox" />
+              </label>
+              <button id="connect-btn" type="button" class="primary-btn">Connect</button>
             </div>
           </section>
           <section class="settings-section">

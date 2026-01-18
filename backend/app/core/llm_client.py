@@ -12,6 +12,9 @@ from app.core.config import settings
 
 logger = structlog.get_logger()
 
+# Default timeout for LLM requests (10 minutes for complex 3D mesh generation)
+DEFAULT_LLM_TIMEOUT = 600
+
 
 def parse_xml_tool_calls(content: str) -> tuple[str, List[Dict[str, Any]]]:
     """
@@ -83,6 +86,7 @@ class LLMClient:
         tools: Optional[List[Dict[str, Any]]] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        context_window: Optional[int] = None,
         response_format: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -99,13 +103,13 @@ class LLMClient:
             Chunks of the response
         """
         if self.provider == "ollama":
-            async for chunk in self._ollama_stream(messages, tools, temperature, max_tokens, response_format):
+            async for chunk in self._ollama_stream(messages, tools, temperature, max_tokens, context_window, response_format):
                 yield chunk
         elif self.provider == "vllm":
-            async for chunk in self._vllm_stream(messages, tools, temperature, max_tokens, response_format):
+            async for chunk in self._vllm_stream(messages, tools, temperature, max_tokens, context_window, response_format):
                 yield chunk
         elif self.provider == "llamacpp":
-            async for chunk in self._llamacpp_stream(messages, tools, temperature, max_tokens, response_format):
+            async for chunk in self._llamacpp_stream(messages, tools, temperature, max_tokens, context_window, response_format):
                 yield chunk
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
@@ -116,6 +120,7 @@ class LLMClient:
         tools: Optional[List[Dict[str, Any]]],
         temperature: float,
         max_tokens: Optional[int],
+        context_window: Optional[int],
         response_format: Optional[str]
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream from Ollama API"""
@@ -132,6 +137,8 @@ class LLMClient:
 
         if max_tokens:
             payload["options"]["num_predict"] = max_tokens
+        if context_window:
+            payload["options"]["num_ctx"] = context_window
         if response_format:
             payload["format"] = response_format
 
@@ -143,8 +150,11 @@ class LLMClient:
                        tool_count=len(tools),
                        has_system=any(m.get("role") == "system" for m in messages))
 
+        # Use a long timeout for LLM responses (models can take minutes for complex tasks)
+        timeout = aiohttp.ClientTimeout(total=DEFAULT_LLM_TIMEOUT, sock_read=DEFAULT_LLM_TIMEOUT)
+
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url, json=payload) as response:
                     if response.status != 200:
                         error_text = await response.text()
@@ -219,9 +229,13 @@ class LLMClient:
                                 logger.warning("json_decode_error", error=str(e), line=line)
                                 continue
 
+        except aiohttp.ServerTimeoutError:
+            logger.error("ollama_timeout", timeout=DEFAULT_LLM_TIMEOUT)
+            raise Exception(f"Ollama request timed out after {DEFAULT_LLM_TIMEOUT} seconds")
         except aiohttp.ClientError as e:
-            logger.error("ollama_connection_error", error=str(e))
-            raise Exception(f"Failed to connect to Ollama: {str(e)}")
+            error_msg = str(e) if str(e) else type(e).__name__
+            logger.error("ollama_connection_error", error=error_msg)
+            raise Exception(f"Failed to connect to Ollama: {error_msg}")
 
     async def _vllm_stream(
         self,
@@ -229,6 +243,7 @@ class LLMClient:
         tools: Optional[List[Dict[str, Any]]],
         temperature: float,
         max_tokens: Optional[int],
+        context_window: Optional[int],
         response_format: Optional[str]
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream from vLLM OpenAI-compatible API"""
@@ -248,8 +263,10 @@ class LLMClient:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
 
+        timeout = aiohttp.ClientTimeout(total=DEFAULT_LLM_TIMEOUT, sock_read=DEFAULT_LLM_TIMEOUT)
+
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url, json=payload) as response:
                     if response.status != 200:
                         error_text = await response.text()
@@ -303,9 +320,13 @@ class LLMClient:
                                 logger.warning("json_decode_error", error=str(e))
                                 continue
 
+        except aiohttp.ServerTimeoutError:
+            logger.error("vllm_timeout", timeout=DEFAULT_LLM_TIMEOUT)
+            raise Exception(f"vLLM request timed out after {DEFAULT_LLM_TIMEOUT} seconds")
         except aiohttp.ClientError as e:
-            logger.error("vllm_connection_error", error=str(e))
-            raise Exception(f"Failed to connect to vLLM: {str(e)}")
+            error_msg = str(e) if str(e) else type(e).__name__
+            logger.error("vllm_connection_error", error=error_msg)
+            raise Exception(f"Failed to connect to vLLM: {error_msg}")
 
     async def _llamacpp_stream(
         self,
@@ -313,6 +334,7 @@ class LLMClient:
         tools: Optional[List[Dict[str, Any]]],
         temperature: float,
         max_tokens: Optional[int],
+        context_window: Optional[int],
         response_format: Optional[str]
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream from llama.cpp server"""
@@ -331,8 +353,10 @@ class LLMClient:
         if tools:
             payload["tools"] = tools
 
+        timeout = aiohttp.ClientTimeout(total=DEFAULT_LLM_TIMEOUT, sock_read=DEFAULT_LLM_TIMEOUT)
+
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url, json=payload) as response:
                     if response.status != 200:
                         error_text = await response.text()
@@ -376,6 +400,10 @@ class LLMClient:
                                 logger.warning("json_decode_error", error=str(e))
                                 continue
 
+        except aiohttp.ServerTimeoutError:
+            logger.error("llamacpp_timeout", timeout=DEFAULT_LLM_TIMEOUT)
+            raise Exception(f"llama.cpp request timed out after {DEFAULT_LLM_TIMEOUT} seconds")
         except aiohttp.ClientError as e:
-            logger.error("llamacpp_connection_error", error=str(e))
-            raise Exception(f"Failed to connect to llama.cpp: {str(e)}")
+            error_msg = str(e) if str(e) else type(e).__name__
+            logger.error("llamacpp_connection_error", error=error_msg)
+            raise Exception(f"Failed to connect to llama.cpp: {error_msg}")

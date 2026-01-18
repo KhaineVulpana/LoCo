@@ -89,6 +89,7 @@ class IsolatedLLMClient:
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature or self.temperature,
+                    context_window=self.context_window,
                     response_format=response_format
                 ):
                     yield chunk

@@ -2,12 +2,14 @@
 Model API - Endpoints for model switching and management
 """
 
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import structlog
+import httpx
 
 from app.core.runtime import get_model_manager
+from app.core.config import settings
 
 logger = structlog.get_logger()
 
@@ -48,6 +50,17 @@ class ModelStatusResponse(BaseModel):
     current_model: Optional[CurrentModelResponse]
 
 
+class ModelListItem(BaseModel):
+    id: str
+    provider: str
+    url: str
+    display_name: Optional[str] = None
+
+
+class ModelListResponse(BaseModel):
+    models: List[ModelListItem]
+
+
 @router.get("/status", response_model=ModelStatusResponse)
 async def get_model_status(
     model_manager = Depends(get_model_manager)
@@ -80,6 +93,50 @@ async def get_model_status(
         is_loaded=is_loaded,
         current_model=current_model
     )
+
+
+@router.get("", response_model=ModelListResponse)
+async def list_models(
+    provider: Optional[str] = None,
+    url: Optional[str] = None,
+    model_manager = Depends(get_model_manager)
+):
+    config = model_manager.get_current_config()
+    provider = provider or (config.provider if config else settings.MODEL_PROVIDER)
+    url = url or (config.url if config else settings.MODEL_URL)
+
+    models: List[ModelListItem] = []
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            if provider == "ollama":
+                response = await client.get(f"{url}/api/tags")
+                response.raise_for_status()
+                data = response.json()
+                for item in data.get("models", []):
+                    model_id = item.get("name")
+                    if model_id:
+                        models.append(ModelListItem(id=model_id, provider=provider, url=url))
+            elif provider in ("vllm", "llamacpp"):
+                response = await client.get(f"{url}/v1/models")
+                response.raise_for_status()
+                data = response.json()
+                for item in data.get("data", []):
+                    model_id = item.get("id")
+                    if model_id:
+                        models.append(ModelListItem(id=model_id, provider=provider, url=url))
+    except Exception as exc:
+        logger.warning("model_list_failed", provider=provider, error=str(exc))
+
+    if config and not any(m.id == config.model_name for m in models):
+        models.append(ModelListItem(
+            id=config.model_name,
+            provider=config.provider,
+            url=config.url,
+            display_name=config.get_display_name()
+        ))
+
+    return ModelListResponse(models=models)
 
 
 @router.post("/switch", response_model=ModelSwitchResponse)

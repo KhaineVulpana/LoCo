@@ -4,6 +4,7 @@ Main agent implementation with agentic loop
 
 import asyncio
 import json
+import time
 import uuid
 from typing import Dict, List, Any, Optional, AsyncGenerator, Tuple
 import structlog
@@ -35,18 +36,25 @@ class Agent:
         workspace_path: str,
         module_id: str = "vscode",  # Which module is using this agent
         workspace_id: Optional[str] = None,
+        session_id: Optional[str] = None,
         db_session_maker: Optional[Any] = None,
         model_manager: Optional[ModelManager] = None,
         embedding_manager: Optional[EmbeddingManager] = None,
         vector_store: Optional[VectorStore] = None,
-        enable_ace: bool = True  # Re-enabled after fixing duplicate response issue with IsolatedLLMClient
+        enable_ace: bool = True,  # Re-enabled after fixing duplicate response issue with IsolatedLLMClient
+        agent_config: Optional[Dict[str, Any]] = None
     ):
         self.workspace_path = workspace_path
         self.module_id = module_id
         self.workspace_id = workspace_id
+        self.session_id = session_id
         self.db_session_maker = db_session_maker
         self.ace_collection = f"loco_ace_{module_id}"
         self.model_manager = model_manager
+        self.agent_config = agent_config or {}
+        tools_config = self.agent_config.get("tools") or {}
+        self.tool_allowlist = tools_config.get("allowlist") or tools_config.get("allowed_tools")
+        self.tool_blocklist = tools_config.get("blocklist") or tools_config.get("blocked_tools")
         self.tool_registry = ToolRegistry()
         self.conversation_history: List[Dict[str, str]] = []
         self.max_iterations = 10  # Prevent infinite loops
@@ -56,7 +64,14 @@ class Agent:
         self.vector_store = vector_store
         self.retriever = None
 
-        if embedding_manager and vector_store:
+        rag_config = self.agent_config.get("rag") or {}
+        rag_enabled = rag_config.get("enabled", True)
+        self.rag_settings = {
+            "limit": rag_config.get("limit", 5),
+            "score_threshold": rag_config.get("score_threshold", 0.6)
+        }
+
+        if embedding_manager and vector_store and rag_enabled:
             self.retriever = Retriever(
                 module_id=module_id,
                 embedding_manager=embedding_manager,
@@ -69,7 +84,12 @@ class Agent:
             logger.warning("rag_disabled", reason="No embedding manager or vector store provided")
 
         # ACE components
-        self.enable_ace = enable_ace
+        ace_config = self.agent_config.get("ace") or {}
+        self.enable_ace = ace_config.get("enabled", enable_ace)
+        self.ace_settings = {
+            "limit": ace_config.get("limit", 5),
+            "score_threshold": ace_config.get("score_threshold", 0.5)
+        }
         self.playbook = None
         if enable_ace:
             if embedding_manager and vector_store:
@@ -100,9 +120,9 @@ class Agent:
 
         # System prompt - qwen3-coder doesn't support tool calling with system prompts
         # Keep empty for coding modules; add 3d-gen guidance for mesh output.
-        self.system_prompt = ""
+        base_prompt = ""
         if self.module_id == "3d-gen":
-            self.system_prompt = (
+            base_prompt = (
                 "You are the LoCo 3D-Gen assistant. Use retrieved examples to derive geometry, "
                 "and return a mesh preview plus optional Unity C# code. "
                 "Respond with a short summary, then include a JSON code block with this shape:\n\n"
@@ -121,6 +141,13 @@ class Agent:
                 "Rules: vertices are meters, triangles use zero-based indices, keep meshes compact, "
                 "and include normals/uvs when possible."
             )
+        agent_prompt = (self.agent_config.get("system_prompt") or "").strip()
+        if agent_prompt and base_prompt:
+            self.system_prompt = f"{agent_prompt}\n\n{base_prompt}"
+        elif agent_prompt:
+            self.system_prompt = agent_prompt
+        else:
+            self.system_prompt = base_prompt
 
     def _get_llm_client(self) -> Optional[LLMClient]:
         """
@@ -372,6 +399,59 @@ class Agent:
             "headless_browser"
         }
 
+    async def _record_tool_event(
+        self,
+        tool_name: Optional[str],
+        tool_args: Dict[str, Any],
+        result: Dict[str, Any],
+        duration_ms: int,
+        requires_approval: bool,
+        approval_status: Optional[str]
+    ) -> None:
+        if not tool_name or not self.db_session_maker or not self.session_id or not self.workspace_id:
+            return
+
+        def _safe_json(value: Any) -> str:
+            try:
+                return json.dumps(value, ensure_ascii=True)
+            except TypeError:
+                return json.dumps(str(value), ensure_ascii=True)
+
+        status = "success" if result.get("success") else "failed"
+        if result.get("denied_by_policy") or approval_status == "denied":
+            status = "denied"
+
+        args_json = _safe_json(tool_args)
+        result_json = _safe_json(result)
+        error_json = result_json if not result.get("success", False) else None
+
+        try:
+            async with self.db_session_maker() as session:
+                await session.execute(text("""
+                    INSERT INTO tool_events (
+                        session_id, workspace_id, tool_name, args_json, result_json,
+                        error_json, status, duration_ms, requires_approval, approval_status
+                    )
+                    VALUES (
+                        :session_id, :workspace_id, :tool_name, :args_json, :result_json,
+                        :error_json, :status, :duration_ms, :requires_approval, :approval_status
+                    )
+                """), {
+                    "session_id": self.session_id,
+                    "workspace_id": self.workspace_id,
+                    "tool_name": tool_name,
+                    "args_json": args_json,
+                    "result_json": result_json,
+                    "error_json": error_json,
+                    "status": status,
+                    "duration_ms": duration_ms,
+                    "requires_approval": 1 if requires_approval else 0,
+                    "approval_status": approval_status
+                })
+                await session.commit()
+        except Exception as exc:
+            logger.warning("tool_event_record_failed", tool=tool_name, error=str(exc))
+
     def _create_approval_request(self) -> Tuple[str, asyncio.Future]:
         request_id = str(uuid.uuid4())
         future = asyncio.get_running_loop().create_future()
@@ -403,26 +483,47 @@ class Agent:
         else:
             logger.warning("resolve_approval_failed", request_id=request_id, has_future=future is not None, is_done=future.done() if future else None)
 
+    def _tool_allowed(self, tool_name: str) -> bool:
+        if self.tool_allowlist:
+            return tool_name in self.tool_allowlist
+        if self.tool_blocklist:
+            return tool_name not in self.tool_blocklist
+        return True
+
     def _init_tools(self):
         """Initialize and register all tools"""
-        self.tool_registry.register(ReadFileTool(self.workspace_path))
-        self.tool_registry.register(WriteFileTool(self.workspace_path))
-        self.tool_registry.register(ListFilesTool(self.workspace_path))
-        self.tool_registry.register(ApplyPatchTool(self.workspace_path))
-        self.tool_registry.register(RunCommandTool(self.workspace_path))
-        self.tool_registry.register(RunTestsTool(self.workspace_path))
-        self.tool_registry.register(ReportPlanTool())
-        self.tool_registry.register(ProposePatchTool(self.workspace_path))
-        self.tool_registry.register(ProposeDiffTool(self.workspace_path))
-        self.tool_registry.register(WebFetchTool(
-            module_id=self.module_id,
-            embedding_manager=self.embedding_manager,
-            vector_store=self.vector_store
-        ))
-        self.tool_registry.register(WebSearchTool())
-        self.tool_registry.register(RepoHostingTool())
-        self.tool_registry.register(HeadlessBrowserTool())
-        self.tool_registry.register(ReadOnlySqlTool())
+        if self._tool_allowed("read_file"):
+            self.tool_registry.register(ReadFileTool(self.workspace_path))
+        if self._tool_allowed("write_file"):
+            self.tool_registry.register(WriteFileTool(self.workspace_path, module_id=self.module_id))
+        if self._tool_allowed("list_files"):
+            self.tool_registry.register(ListFilesTool(self.workspace_path))
+        if self._tool_allowed("apply_patch"):
+            self.tool_registry.register(ApplyPatchTool(self.workspace_path))
+        if self._tool_allowed("run_command"):
+            self.tool_registry.register(RunCommandTool(self.workspace_path))
+        if self._tool_allowed("run_tests"):
+            self.tool_registry.register(RunTestsTool(self.workspace_path))
+        if self._tool_allowed("report_plan"):
+            self.tool_registry.register(ReportPlanTool())
+        if self._tool_allowed("propose_patch"):
+            self.tool_registry.register(ProposePatchTool(self.workspace_path))
+        if self._tool_allowed("propose_diff"):
+            self.tool_registry.register(ProposeDiffTool(self.workspace_path))
+        if self._tool_allowed("web_fetch"):
+            self.tool_registry.register(WebFetchTool(
+                module_id=self.module_id,
+                embedding_manager=self.embedding_manager,
+                vector_store=self.vector_store
+            ))
+        if self._tool_allowed("web_search"):
+            self.tool_registry.register(WebSearchTool())
+        if self._tool_allowed("repo_hosting"):
+            self.tool_registry.register(RepoHostingTool())
+        if self._tool_allowed("headless_browser"):
+            self.tool_registry.register(HeadlessBrowserTool())
+        if self._tool_allowed("read_only_sql"):
+            self.tool_registry.register(ReadOnlySqlTool())
 
         logger.info("agent_tools_initialized",
                    tool_count=len(self.tool_registry.tools),
@@ -461,8 +562,8 @@ class Agent:
                     # Retrieve relevant documentation and training examples
                     results = await self.retriever.retrieve(
                         query=user_message,
-                        limit=5,
-                        score_threshold=0.6
+                        limit=self.rag_settings["limit"],
+                        score_threshold=self.rag_settings["score_threshold"]
                     )
 
                     if results:
@@ -493,8 +594,8 @@ class Agent:
                     workspace_results = await self.retriever.retrieve_workspace_hybrid(
                         query=user_message,
                         workspace_id=self.workspace_id,
-                        limit=5,
-                        score_threshold=0.6
+                        limit=self.rag_settings["limit"],
+                        score_threshold=self.rag_settings["score_threshold"]
                     )
 
                     if workspace_results:
@@ -523,8 +624,8 @@ class Agent:
                 try:
                     ace_results = await self.retriever.retrieve_ace_bullets(
                         query=user_message,
-                        limit=5,
-                        score_threshold=0.5
+                        limit=self.ace_settings["limit"],
+                        score_threshold=self.ace_settings["score_threshold"]
                     )
 
                     if ace_results:
@@ -598,6 +699,10 @@ class Agent:
                 }
                 return
 
+            config = self.model_manager.get_current_config() if self.model_manager else None
+            temperature = config.temperature if config else 0.7
+            context_window = config.context_window if config else settings.MAX_CONTEXT_TOKENS
+
             # Agentic loop
             iteration = 0
             total_tool_calls = 0
@@ -626,7 +731,8 @@ class Agent:
                 async for chunk in llm_client.generate_stream(
                     messages=messages,
                     tools=tools,
-                    temperature=0.7
+                    temperature=temperature,
+                    context_window=context_window
                 ):
                     if chunk["type"] == "content":
                         current_content += chunk["content"]
@@ -708,8 +814,24 @@ class Agent:
                 # Execute tool calls
                 tool_results = []
                 policy = await self._get_workspace_policy()
+                tools_policy = self.agent_config.get("tools") or {}
+                auto_approve = tools_policy.get("auto_approve_tools")
+                if auto_approve:
+                    existing = policy.get("auto_approve_tools") or []
+                    policy["auto_approve_tools"] = list({*existing, *auto_approve})
+                if tools_policy.get("command_approval"):
+                    policy["command_approval"] = tools_policy["command_approval"]
+                if tools_policy.get("network_enabled") is not None:
+                    policy["network_enabled"] = bool(tools_policy.get("network_enabled"))
+                if tools_policy.get("allowed_commands"):
+                    policy["allowed_commands"] = tools_policy["allowed_commands"]
+                if tools_policy.get("blocked_commands"):
+                    policy["blocked_commands"] = tools_policy["blocked_commands"]
                 for tool_call in current_tool_calls:
                     total_tool_calls += 1
+                    start_time = time.perf_counter()
+                    requires_approval = False
+                    approval_status = None
                     # Parse tool call
                     tool_name = tool_call.get("function", {}).get("name")
                     tool_args_str = tool_call.get("function", {}).get("arguments", "{}")
@@ -749,6 +871,7 @@ class Agent:
                         else:
                             approval_required = self._requires_command_approval(tool_name, policy)
                             if approval_required:
+                                requires_approval = True
                                 request_id, _future = self._create_approval_request()
                                 prompt = tool.approval_prompt(tool_args) if tool else None
                                 yield {
@@ -760,12 +883,14 @@ class Agent:
                                 }
                                 approved = await self._await_approval(request_id)
                                 if not approved:
+                                    approval_status = "denied"
                                     result = {
                                         "success": False,
                                         "error": "Command execution denied",
                                         "requires_approval": True
                                     }
                                 else:
+                                    approval_status = "approved"
                                     result = await self.tool_registry.execute_tool(tool_name, tool_args)
                             else:
                                 result = await self.tool_registry.execute_tool(tool_name, tool_args)
@@ -787,6 +912,7 @@ class Agent:
                         else:
                             approval_required = self._requires_tool_approval(tool_name, policy, tool)
                             if approval_required:
+                                requires_approval = True
                                 request_id, _future = self._create_approval_request()
                                 prompt = tool.approval_prompt(tool_args) if tool else None
                                 yield {
@@ -798,12 +924,14 @@ class Agent:
                                 }
                                 approved = await self._await_approval(request_id)
                                 if not approved:
+                                    approval_status = "denied"
                                     result = {
                                         "success": False,
                                         "error": "Tool execution denied",
                                         "requires_approval": True
                                     }
                                 else:
+                                    approval_status = "approved"
                                     result = await self.tool_registry.execute_tool(tool_name, tool_args)
                             else:
                                 result = await self.tool_registry.execute_tool(tool_name, tool_args)
@@ -819,6 +947,7 @@ class Agent:
                         else:
                             approval_required = self._requires_tool_approval(tool_name, policy, tool)
                             if approval_required:
+                                requires_approval = True
                                 request_id, _future = self._create_approval_request()
                                 prompt = tool.approval_prompt(tool_args)
                                 yield {
@@ -830,12 +959,14 @@ class Agent:
                                 }
                                 approved = await self._await_approval(request_id)
                                 if not approved:
+                                    approval_status = "denied"
                                     result = {
                                         "success": False,
                                         "error": "Tool execution denied",
                                         "requires_approval": True
                                     }
                                 else:
+                                    approval_status = "approved"
                                     result = await self.tool_registry.execute_tool(tool_name, tool_args)
                             else:
                                 result = await self.tool_registry.execute_tool(tool_name, tool_args)
@@ -848,6 +979,16 @@ class Agent:
                         if tool_name == "run_tests" or self._is_test_command(command_value):
                             test_loop_attempts += 1
                             test_loop_failed = not result.get("success", False)
+
+                    duration_ms = int((time.perf_counter() - start_time) * 1000)
+                    await self._record_tool_event(
+                        tool_name=tool_name,
+                        tool_args=tool_args,
+                        result=result,
+                        duration_ms=duration_ms,
+                        requires_approval=requires_approval,
+                        approval_status=approval_status
+                    )
 
                     # Send FULL result to conversation (model needs complete data)
                     tool_results.append({
@@ -916,12 +1057,13 @@ class Agent:
             )
 
         except Exception as e:
-            logger.error("agent_error", error=str(e))
+            error_msg = str(e) if str(e) else f"Unknown error: {type(e).__name__}"
+            logger.error("agent_error", error=error_msg, error_type=type(e).__name__)
             yield {
                 "type": "server.error",
                 "error": {
                     "code": "agent_error",
-                    "message": str(e)
+                    "message": error_msg
                 }
             }
 

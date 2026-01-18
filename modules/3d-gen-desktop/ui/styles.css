@@ -419,6 +419,11 @@ body.is-resizing {
   transform: none;
 }
 
+.primary-btn.is-stop {
+  background: linear-gradient(130deg, #ff7d70, #f2a65a);
+  color: #1a0b0b;
+}
+
 .ghost-btn {
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -452,11 +457,15 @@ body.is-resizing {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding-right: 4px;
+  gap: 12px;
+  padding: 8px 4px 8px 0;
   min-height: 0;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.messages > *:first-child {
+  margin-top: auto;
 }
 
 .session-list::-webkit-scrollbar,
@@ -533,12 +542,18 @@ body.is-resizing {
   border: 1px solid var(--border);
   animation: fadeIn 0.3s ease;
   white-space: pre-wrap;
-  line-height: 1.5;
+  line-height: 1.6;
   box-shadow: 0 8px 18px rgba(4, 7, 12, 0.35);
+  word-break: break-word;
+}
+
+.message:empty {
+  display: none;
 }
 
 .message.user {
   align-self: flex-end;
+  max-width: 85%;
   background: var(--accent-soft);
   border-color: rgba(240, 161, 93, 0.3);
   color: #ffe9d4;
@@ -546,6 +561,8 @@ body.is-resizing {
 
 .message.assistant {
   align-self: flex-start;
+  background: rgba(30, 38, 52, 0.7);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .message pre {
@@ -556,6 +573,128 @@ body.is-resizing {
   font-family: var(--code);
   font-size: 12px;
   border: 1px solid var(--border);
+}
+
+.thinking-card {
+  margin: 8px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px dashed rgba(242, 166, 90, 0.4);
+  background: rgba(242, 166, 90, 0.04);
+  box-shadow: var(--shadow-soft);
+}
+
+.thinking-card.is-collapsed .thinking-body {
+  display: none;
+}
+
+.thinking-card.is-collapsed .thinking-header {
+  margin-bottom: 0;
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.thinking-title {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thinking-title::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+.thinking-toggle {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.thinking-body {
+  margin: 0;
+  max-height: 200px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(7, 10, 16, 0.85);
+  border: 1px solid var(--border);
+  font-family: var(--code);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--text-muted);
+}
+
+.tool-card {
+  margin: 10px 0;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+.tool-card:empty {
+  display: none;
+}
+
+.tool-card summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 12px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-card summary::before {
+  content: "▶";
+  font-size: 8px;
+  transition: transform 0.2s ease;
+}
+
+.tool-card[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.tool-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-details {
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: rgba(7, 10, 16, 0.92);
+  font-family: var(--code);
+  font-size: 12px;
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow: auto;
+  word-break: break-word;
 }
 
 .approval-card {
@@ -583,10 +722,28 @@ body.is-resizing {
 
 .approval-details {
   margin: 0 0 10px;
-  padding: 10px;
   border-radius: 10px;
-  background: rgba(7, 10, 16, 0.9);
   border: 1px solid var(--border);
+  background: rgba(7, 10, 16, 0.9);
+  overflow: hidden;
+}
+
+.approval-details summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.approval-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.approval-details-body {
+  margin: 0;
+  padding: 10px;
+  border-top: 1px solid var(--border);
   font-family: var(--code);
   font-size: 12px;
   white-space: pre-wrap;
@@ -1150,6 +1307,10 @@ body.is-resizing {
   width: 16px;
   height: 16px;
   accent-color: var(--accent);
+}
+
+.settings-grid button {
+  grid-column: 1 / -1;
 }
 
 .settings-actions {

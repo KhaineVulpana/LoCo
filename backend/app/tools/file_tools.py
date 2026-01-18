@@ -5,6 +5,7 @@ File system tools for the agent
 import os
 import re
 import aiofiles
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 import structlog
@@ -89,13 +90,34 @@ class WriteFileTool(Tool):
         "required": ["file_path", "content"]
     }
 
-    def __init__(self, workspace_path: str):
+    def __init__(self, workspace_path: str, module_id: Optional[str] = None):
         self.workspace_path = workspace_path
+        self.module_id = module_id
+
+    def _is_mesh_content(self, content: str) -> bool:
+        """Check if content appears to be mesh data"""
+        content_lower = content.lower()
+        return '"vertices"' in content_lower and '"triangles"' in content_lower
+
+    def _add_datetime_suffix(self, file_path: str) -> str:
+        """Add datetime suffix to filename before extension"""
+        path = Path(file_path)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        new_name = f"{path.stem}_{timestamp}{path.suffix}"
+        return str(path.parent / new_name) if path.parent != Path('.') else new_name
 
     async def execute(self, file_path: str, content: str) -> Dict[str, Any]:
         """Write file contents"""
         try:
-            full_path = os.path.join(self.workspace_path, file_path)
+            # For 3d-gen module, add datetime suffix to mesh files
+            actual_file_path = file_path
+            if self.module_id == "3d-gen" and self._is_mesh_content(content):
+                actual_file_path = self._add_datetime_suffix(file_path)
+                logger.info("mesh_file_datetime_suffix",
+                           original=file_path,
+                           renamed=actual_file_path)
+
+            full_path = os.path.join(self.workspace_path, actual_file_path)
 
             # Security check
             if not os.path.abspath(full_path).startswith(os.path.abspath(self.workspace_path)):
@@ -105,14 +127,16 @@ class WriteFileTool(Tool):
                 }
 
             # Create parent directories if needed
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            parent_dir = os.path.dirname(full_path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
 
             async with aiofiles.open(full_path, 'w', encoding='utf-8') as f:
                 await f.write(content)
 
             return {
                 "success": True,
-                "file_path": file_path,
+                "file_path": actual_file_path,
                 "bytes_written": len(content)
             }
 

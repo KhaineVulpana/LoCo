@@ -135,6 +135,45 @@ async def get_knowledge_stats(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{module_id}/items")
+async def list_knowledge_items(
+    module_id: str,
+    limit: int = 200,
+    offset: Optional[str] = None,
+    vector_store: VectorStore = Depends(get_vector_store)
+):
+    """
+    List indexed knowledge chunks for a module.
+
+    Returns payload metadata and content for inspection.
+    """
+    collection_name = f"loco_rag_{module_id}"
+    try:
+        page = vector_store.scroll(
+            collection_name=collection_name,
+            limit=limit,
+            offset=offset
+        )
+        items = []
+        for point in page.get("points", []):
+            payload = point.get("payload") or {}
+            items.append({
+                "id": point.get("id"),
+                "payload": payload
+            })
+
+        return {
+            "success": True,
+            "module_id": module_id,
+            "collection": collection_name,
+            "items": items,
+            "next_offset": page.get("next_offset")
+        }
+    except Exception as e:
+        logger.error("list_knowledge_items_failed", module_id=module_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{module_id}/retrieve")
 async def retrieve_knowledge(
     module_id: str,

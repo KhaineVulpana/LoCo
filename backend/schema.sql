@@ -40,14 +40,60 @@ CREATE TABLE IF NOT EXISTS workspace_policies (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_policies_workspace ON workspace_policies(workspace_id);
 
+-- Folders (chat organization)
+CREATE TABLE IF NOT EXISTS folders (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  deleted_at TEXT,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_folders_workspace ON folders(workspace_id) WHERE deleted_at IS NULL;
+
+-- Agents (agent profiles + versioned configs)
+CREATE TABLE IF NOT EXISTS agents (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  active_version_id TEXT,
+  is_archived INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  deleted_at TEXT,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_agents_workspace ON agents(workspace_id) WHERE deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS agent_versions (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  title TEXT,
+  config_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_versions_agent ON agent_versions(agent_id, version DESC);
+
 -- Sessions
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
+  folder_id TEXT,
+  agent_id TEXT,
   title TEXT,
   model_provider TEXT NOT NULL,
   model_name TEXT NOT NULL,
+  model_url TEXT,
   context_window INTEGER NOT NULL,
+  temperature REAL NOT NULL DEFAULT 0.7,
   context_strategy TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -59,11 +105,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   total_patches_proposed INTEGER DEFAULT 0,
   total_patches_applied INTEGER DEFAULT 0,
   total_commands_run INTEGER DEFAULT 0,
-  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL,
+  FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_sessions_folder ON sessions(folder_id) WHERE deleted_at IS NULL;
 
 -- Session Messages
 CREATE TABLE IF NOT EXISTS session_messages (
@@ -71,6 +120,7 @@ CREATE TABLE IF NOT EXISTS session_messages (
   session_id TEXT NOT NULL,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  metadata_json TEXT,
   context_json TEXT,
   context_hash TEXT,
   tokens_prompt INTEGER,
@@ -81,6 +131,10 @@ CREATE TABLE IF NOT EXISTS session_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_session ON session_messages(session_id, created_at);
+
+-- Full-text search for session messages (kept in sync by the app layer)
+CREATE VIRTUAL TABLE IF NOT EXISTS session_messages_fts
+USING fts5(session_id, role, content, created_at, content='');
 
 -- Tool Events
 CREATE TABLE IF NOT EXISTS tool_events (
@@ -127,6 +181,27 @@ CREATE TABLE IF NOT EXISTS patch_events (
 
 CREATE INDEX IF NOT EXISTS idx_patch_events_session ON patch_events(session_id, proposed_at);
 CREATE INDEX IF NOT EXISTS idx_patch_events_file ON patch_events(workspace_id, file_path);
+
+-- Attachments (uploads and indexed documents)
+CREATE TABLE IF NOT EXISTS attachments (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  session_id TEXT,
+  agent_id TEXT,
+  file_name TEXT NOT NULL,
+  mime_type TEXT,
+  size_bytes INTEGER NOT NULL,
+  storage_path TEXT NOT NULL,
+  content_hash TEXT,
+  purpose TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+  FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_workspace ON attachments(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_session ON attachments(session_id);
 
 -- Files
 CREATE TABLE IF NOT EXISTS files (

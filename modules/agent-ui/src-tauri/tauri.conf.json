@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LoCo Agent Studio",
+  "version": "0.1.0",
+  "identifier": "com.loco.agentstudio",
+  "build": {
+    "beforeBuildCommand": "npm run build:tauri",
+    "beforeDevCommand": "npm run dev -- --host",
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173/app/"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "LoCo Agent Studio",
+        "width": 1280,
+        "height": 820,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis"],
+    "icon": ["icons/icon.ico"]
+  }
+}

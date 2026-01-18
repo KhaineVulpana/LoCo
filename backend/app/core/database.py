@@ -85,6 +85,41 @@ async def init_db():
             definition="TEXT NOT NULL DEFAULT '[]'"
         )
 
+        await _ensure_column(
+            conn,
+            table="sessions",
+            column="folder_id",
+            definition="TEXT"
+        )
+
+        await _ensure_column(
+            conn,
+            table="sessions",
+            column="agent_id",
+            definition="TEXT"
+        )
+
+        await _ensure_column(
+            conn,
+            table="sessions",
+            column="model_url",
+            definition="TEXT"
+        )
+
+        await _ensure_column(
+            conn,
+            table="sessions",
+            column="temperature",
+            definition="REAL NOT NULL DEFAULT 0.7"
+        )
+
+        await _ensure_column(
+            conn,
+            table="session_messages",
+            column="metadata_json",
+            definition="TEXT"
+        )
+
         await conn.commit()
 
     logger.info("database_initialized")
